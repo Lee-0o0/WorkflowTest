@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:workflowtest;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: true
+workflowtest:
+  security:
+    jwt-secret: test-secret-key-that-is-definitely-more-than-32-bytes
+    token-minutes: 60
+  bootstrap:
+    admin-username: admin
+    admin-password: ChangeMe123!
+    admin-display-name: Test Admin

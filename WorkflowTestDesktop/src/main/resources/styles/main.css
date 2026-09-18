@@ -1,0 +1,12 @@
+.root {
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI";
+    -fx-font-size: 13px;
+    -fx-background-color: #f5f7fb;
+}
+.tool-bar { -fx-background-color: white; -fx-padding: 10; -fx-spacing: 8; }
+.button { -fx-background-radius: 5; -fx-cursor: hand; }
+.primary { -fx-background-color: #2563eb; -fx-text-fill: white; }
+.danger { -fx-background-color: #dc2626; -fx-text-fill: white; }
+.tree-view, .table-view, .text-area, .tab-pane { -fx-background-color: white; }
+.section-title { -fx-font-size: 18px; -fx-font-weight: bold; }
+.status-bar { -fx-background-color: #eef2ff; -fx-padding: 7 12; }

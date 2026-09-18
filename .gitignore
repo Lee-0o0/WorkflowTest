@@ -1,0 +1,11 @@
+target/
+dist/
+*.log
+.idea/
+*.iml
+.vscode/
+.workflowtest/
+data/
+logs/
+reports/
+backups/

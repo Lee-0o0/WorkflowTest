@@ -1,0 +1,29 @@
+spring:
+  main:
+    web-application-type: none
+    banner-mode: off
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    call-setters-on-nulls: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_uuid
+workflowtest:
+  server:
+    url: ${WORKFLOWTEST_SERVER_URL:http://localhost:8080}
+  data-dir: ${LOCALAPPDATA:${user.home}/.workflowtest}/WorkflowTest/data
+  global:
+    connectTimeout: 5000
+    readTimeout: 10000
+logging:
+  file:
+    name: ${LOCALAPPDATA:${user.home}/.workflowtest}/WorkflowTest/logs/workflow-test.log
+  level:
+    root: INFO
+    com.workflowtest: INFO
