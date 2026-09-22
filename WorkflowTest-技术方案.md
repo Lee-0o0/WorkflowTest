@@ -1,4 +1,4 @@
-# WorkflowTest 桌面自动化测试工具技术方案
+﻿# WorkflowTest 桌面自动化测试工具技术方案
 
 ## 1. 文档信息
 
@@ -7,7 +7,6 @@
 | 产品名称 | WorkflowTest |
 | 核心项目 | WorkflowTestEngine |
 | 桌面项目 | WorkflowTestDesktop |
-| 资产服务项目 | WorkflowTestServer（集中化阶段新增） |
 | 产品形态 | Windows 桌面应用 |
 | 目标用户 | 接口测试人员、开发人员、质量保障人员 |
 | 核心能力 | HTTP/SQL 测试步骤、多步骤编排、变量传递、断言、执行报告 |
@@ -263,7 +262,7 @@ public class MyBatisPlusConfiguration {
 实体和 Mapper 示例：
 
 ```java
-@TableName(value = "wt_workflow", autoResultMap = true)
+@TableName(value = "ts_workflow", autoResultMap = true)
 public class WorkflowEntity {
 
     @TableId(type = IdType.ASSIGN_UUID)
@@ -1008,20 +1007,20 @@ Engine 维护执行控制对象和 `Future`。取消时设置取消标识并尝�
 ### 17.1 核心表
 
 ```text
-wt_project
-wt_workflow_group
-wt_workflow
-wt_workflow_version（二期启用）
-wt_step_definition
-wt_scope_variable
-wt_hook_definition
-wt_hook_step
-wt_runtime_datasource
-wt_group_execution
-wt_execution
-wt_hook_execution
-wt_step_execution
-wt_assertion_result
+ts_project
+ts_workflow_group
+ts_workflow
+ts_workflow_version（二期启用）
+ts_step_definition
+ts_scope_variable
+ts_hook_definition
+ts_hook_step
+ts_runtime_datasource
+ts_group_execution
+ts_execution
+ts_hook_execution
+ts_step_execution
+ts_assertion_result
 ```
 
 ### 17.2 关键设计原则
@@ -1030,7 +1029,7 @@ wt_assertion_result
 - 结构稳定且需要查询的字段使用普通列。
 - 步骤配置、提取配置、断言配置使用 JSON 文本保存。
 - 项目、组、工作流通过外键形成严格的树形归属关系。
-- 项目、组、工作流变量统一保存在 `wt_scope_variable`，通过 `scope_type + scope_id` 区分范围。
+- 项目、组、工作流变量统一保存在 `ts_scope_variable`，通过 `scope_type + scope_id` 区分范围。
 - Spring Boot 全局环境变量不写入数据库，只在执行开始时读取并生成快照。
 - 钩子定义与普通执行步骤分开存储，但运行时复用相同的 StepExecutor。
 - 一期每次执行时保存不可变工作流快照，保证报告可追溯。
@@ -1044,7 +1043,7 @@ wt_assertion_result
 ### 17.3 主要表结构示例
 
 ```sql
-CREATE TABLE wt_project (
+CREATE TABLE ts_project (
     id              VARCHAR(36) PRIMARY KEY,
     name            VARCHAR(200) NOT NULL,
     description     TEXT,
@@ -1053,7 +1052,7 @@ CREATE TABLE wt_project (
     updated_at      TIMESTAMP NOT NULL
 );
 
-CREATE TABLE wt_workflow_group (
+CREATE TABLE ts_workflow_group (
     id              VARCHAR(36) PRIMARY KEY,
     project_id      VARCHAR(36) NOT NULL,
     name            VARCHAR(200) NOT NULL,
@@ -1065,7 +1064,7 @@ CREATE TABLE wt_workflow_group (
     UNIQUE(project_id, name)
 );
 
-CREATE TABLE wt_workflow (
+CREATE TABLE ts_workflow (
     id              VARCHAR(36) PRIMARY KEY,
     group_id        VARCHAR(36) NOT NULL,
     name            VARCHAR(200) NOT NULL,
@@ -1078,7 +1077,7 @@ CREATE TABLE wt_workflow (
     UNIQUE(group_id, name)
 );
 
-CREATE TABLE wt_scope_variable (
+CREATE TABLE ts_scope_variable (
     id              VARCHAR(36) PRIMARY KEY,
     scope_type      VARCHAR(30) NOT NULL,
     scope_id        VARCHAR(36) NOT NULL,
@@ -1092,7 +1091,7 @@ CREATE TABLE wt_scope_variable (
     UNIQUE(scope_type, scope_id, variable_key)
 );
 
-CREATE TABLE wt_hook_definition (
+CREATE TABLE ts_hook_definition (
     id              VARCHAR(36) PRIMARY KEY,
     owner_type      VARCHAR(30) NOT NULL,
     owner_id        VARCHAR(36) NOT NULL,
@@ -1102,7 +1101,7 @@ CREATE TABLE wt_hook_definition (
     UNIQUE(owner_type, owner_id, hook_type)
 );
 
-CREATE TABLE wt_hook_step (
+CREATE TABLE ts_hook_step (
     id                  VARCHAR(36) PRIMARY KEY,
     hook_id             VARCHAR(36) NOT NULL,
     step_code           VARCHAR(100) NOT NULL,
@@ -1117,7 +1116,7 @@ CREATE TABLE wt_hook_step (
     UNIQUE(hook_id, step_code)
 );
 
-CREATE TABLE wt_workflow_version (
+CREATE TABLE ts_workflow_version (
     id              VARCHAR(36) PRIMARY KEY,
     workflow_id     VARCHAR(36) NOT NULL,
     version         INTEGER NOT NULL,
@@ -1128,7 +1127,7 @@ CREATE TABLE wt_workflow_version (
 
 -- 一期执行依赖 workflow_snapshot；二期启用显式发布后使用本表和 workflow_version。
 
-CREATE TABLE wt_step_definition (
+CREATE TABLE ts_step_definition (
     id                  VARCHAR(36) PRIMARY KEY,
     workflow_id         VARCHAR(36) NOT NULL,
     step_code           VARCHAR(100) NOT NULL,
@@ -1144,7 +1143,7 @@ CREATE TABLE wt_step_definition (
     UNIQUE(workflow_id, step_code)
 );
 
-CREATE TABLE wt_execution (
+CREATE TABLE ts_execution (
     id                  VARCHAR(36) PRIMARY KEY,
     group_execution_id  VARCHAR(36),
     workflow_id         VARCHAR(36) NOT NULL,
@@ -1160,7 +1159,7 @@ CREATE TABLE wt_execution (
     error_message       TEXT
 );
 
-CREATE TABLE wt_group_execution (
+CREATE TABLE ts_group_execution (
     id                  VARCHAR(36) PRIMARY KEY,
     project_id          VARCHAR(36) NOT NULL,
     group_id            VARCHAR(36) NOT NULL,
@@ -1174,7 +1173,7 @@ CREATE TABLE wt_group_execution (
     error_message       TEXT
 );
 
-CREATE TABLE wt_hook_execution (
+CREATE TABLE ts_hook_execution (
     id                  VARCHAR(36) PRIMARY KEY,
     group_execution_id  VARCHAR(36),
     workflow_execution_id VARCHAR(36),
@@ -1188,7 +1187,7 @@ CREATE TABLE wt_hook_execution (
     error_message       TEXT
 );
 
-CREATE TABLE wt_step_execution (
+CREATE TABLE ts_step_execution (
     id                  VARCHAR(36) PRIMARY KEY,
     execution_id        VARCHAR(36),
     hook_execution_id   VARCHAR(36),
@@ -1802,383 +1801,3 @@ WorkflowTest 采用“独立 Engine JAR + JavaFX Desktop”的桌面架构。两
 
 该方案优先保证单机桌面工具的安装简单、运行稳定和数据可追溯，同时通过 Engine API、StepExecutor 和数据库兼容约定，为后续增加新步骤类型、替换元数据库或增加其他客户端保留扩展空间。
 
----
-
-# 第四部分：公司测试资产集中化架构
-
-## 38. 架构演进目标
-
-一期已经实现的 `WorkflowTestEngine + WorkflowTestDesktop + SQLite` 是完整的单机运行形态。为了让项目、组、工作流、步骤、钩子和环境配置成为公司资产，同时继续利用测试人员电脑对测试环境的网络访问能力，后续架构演进为“控制面集中、执行面本地”。
-
-集中化架构遵循以下原则：
-
-- 工作流定义和发布版本保存在公司中心数据库。
-- 工作流仍由测试人员电脑上的 Engine 执行。
-- Desktop 不直接连接中心数据库。
-- Server 不代替测试人员电脑访问被测接口和业务数据库。
-- 每次执行使用不可变执行包，不直接执行正在编辑的草稿。
-- 本地 SQLite 只保存缓存、机器配置、离线队列和临时执行数据。
-
-原有“Desktop 不使用 Spring MVC”的约束继续有效。Spring MVC 只用于新增的独立 Server，不会嵌入 Desktop 或 Engine。
-
-## 39. 目标总体架构
-
-```text
-                           公司内部网络
-┌──────────────────────────────────────────────────────────┐
-│ WorkflowTestServer                                       │
-│ Spring Boot Web + MyBatis-Plus                           │
-│                                                          │
-│ 用户认证 / 项目权限 / 资产 CRUD / 版本发布 / 审计          │
-│ 执行包生成 / 执行结果接收 / 报告查询                       │
-│                         │                                │
-│                         ▼                                │
-│              MySQL / PostgreSQL                          │
-│              公司测试资产主数据库                        │
-└─────────────────────────┬────────────────────────────────┘
-                          │ HTTPS / REST
-                          │ 下载不可变执行包、上传执行结果
-                          ▼
-┌──────────────────────────────────────────────────────────┐
-│ 测试人员电脑                                              │
-│                                                          │
-│ WorkflowTestDesktop（JavaFX + Spring 非 Web）             │
-│       │                                                  │
-│       ├── Server Client                                  │
-│       ├── 本地 SQLite 缓存及待上传队列                    │
-│       ▼ Java API                                         │
-│ WorkflowTestEngine                                       │
-│       ├── HTTP Step ───────────────→ 被测接口             │
-│       ├── SQL Step  ───────────────→ 被测业务数据库       │
-│       └── Delay / Extract / Assert                        │
-└──────────────────────────────────────────────────────────┘
-```
-
-依赖方向必须保持为：
-
-```text
-WorkflowTestDesktop → WorkflowTestServer API
-WorkflowTestDesktop → WorkflowTestEngine API
-WorkflowTestServer  → 中心元数据库
-WorkflowTestEngine  → 被测接口和被测业务数据库
-```
-
-禁止以下依赖：
-
-```text
-Desktop → Server MyBatis Mapper
-Desktop → 中心元数据库
-Engine  → Server 元数据库
-Server  → 测试人员本地业务数据库
-Engine  → JavaFX
-```
-
-## 40. 项目与模块规划
-
-集中化阶段建议采用四个 Maven 项目：
-
-```text
-WorkflowTest
-├── WorkflowTestModel
-├── WorkflowTestEngine
-├── WorkflowTestDesktop
-└── WorkflowTestServer
-```
-
-### 40.1 WorkflowTestModel
-
-共享以下稳定协议：
-
-- 项目、组、工作流、步骤和钩子 DTO。
-- 执行包、版本、校验和定义。
-- 执行命令、事件和报告模型。
-- 公共枚举及基础校验规则。
-
-该模块不能包含 JavaFX、Controller、Mapper 或具体数据库实现。
-
-### 40.2 WorkflowTestEngine
-
-Engine 从“定义持久化与执行混合”逐步收敛为本地执行内核：
-
-- 接收并校验不可变执行包。
-- 合并环境、本机配置及运行输入。
-- 执行 Hook、HTTP、SQL 和 Delay Step。
-- 管理运行时上下文、提取、断言、重试和取消。
-- 生成结构化执行报告。
-- 不依赖 Server，也不读取中心数据库。
-
-一期已有 SQLite DefinitionService 可作为单机模式适配器保留，集中模式下由 Desktop 的 Server Client 替代定义来源。
-
-### 40.3 WorkflowTestDesktop
-
-Desktop 负责：
-
-- 登录及当前用户会话。
-- 浏览有权限的项目和已发布工作流。
-- 编辑服务端草稿并处理版本冲突。
-- 发布工作流版本。
-- 下载执行包并调用本地 Engine。
-- 展示实时事件并上传执行报告。
-- 管理本机数据源凭据及本机变量。
-- 维护离线缓存和失败补传队列。
-
-Desktop 继续以 `WebApplicationType.NONE` 启动，不监听网络端口。
-
-### 40.4 WorkflowTestServer
-
-新增独立服务端项目，建议技术栈为：
-
-```text
-Java 21
-Spring Boot 3.x
-Spring MVC
-Spring Security
-MyBatis-Plus
-Flyway
-MySQL 或 PostgreSQL
-JWT 或公司统一身份认证
-```
-
-Server 负责资产管理、权限、版本、执行包生成、报告接收和审计，不执行测试步骤。
-
-## 41. 中心资产与本机数据边界
-
-| 数据 | 保存位置 | 说明 |
-|---|---|---|
-| 项目、组、工作流、步骤、钩子 | 中心数据库 | 公司资产 |
-| 项目/组/工作流环境变量 | 中心数据库 | 非敏感值可随执行包下发 |
-| 工作流草稿及发布版本 | 中心数据库 | 发布版本不可变 |
-| 项目权限和审计记录 | 中心数据库 | 以项目为权限边界 |
-| 执行摘要和正式报告 | 中心数据库 | 支持团队查询和趋势分析 |
-| 已下载执行包 | 本地 SQLite | 用于缓存和受控离线执行 |
-| 本机数据源 URL、账号、密码 | 本地 SQLite | 密码本机加密，不上传 |
-| 本机覆盖变量 | 本地 SQLite | 只影响当前电脑 |
-| 运行中临时上下文 | 本地内存 | 执行结束后按报告策略保存 |
-| 待上传执行报告 | 本地 SQLite | 网络恢复后自动补传 |
-
-中心数据源只保存逻辑定义，例如 `order-test-db`。SQL Step 引用逻辑编码，不直接携带密码：
-
-```json
-{
-  "datasourceCode": "order-test-db",
-  "operation": "QUERY",
-  "sql": "SELECT status FROM orders WHERE id = :orderId"
-}
-```
-
-本机将 `datasourceCode` 映射为真实 JDBC URL 和凭据。后续如接入 Vault/KMS，可用短期凭据替代本地长期密码。
-
-## 42. 草稿、发布版本与执行包
-
-工作流采用以下生命周期：
-
-```text
-DRAFT → PUBLISHED → ARCHIVED
-```
-
-- 草稿允许编辑，并使用 `revision` 乐观锁防止多人静默覆盖。
-- 每次发布生成一个不可变 `WorkflowVersion`。
-- 执行只能选择发布版本；调试草稿必须明确标记为非正式执行。
-- 历史版本不能原地修改，只能基于旧版本生成新草稿。
-
-Desktop 执行前向 Server 请求执行包。执行包至少包含：
-
-```json
-{
-  "packageVersion": 1,
-  "workflowId": "wf-001",
-  "workflowVersionId": "wfv-003",
-  "version": 3,
-  "checksum": "sha256:...",
-  "project": {},
-  "group": {},
-  "workflow": {},
-  "groupHook": {},
-  "workflowHook": {},
-  "steps": [],
-  "environment": {
-    "project": {},
-    "group": {},
-    "workflow": {}
-  }
-}
-```
-
-Engine 在开始执行前校验包版本和校验和，执行过程中不再查询 Server 定义，避免并发编辑导致本次执行内容漂移。
-
-## 43. 集中模式变量优先级
-
-集中模式在原有四级变量之上增加本机覆盖和运行输入：
-
-```text
-Spring Environment 全局变量
-        ↓
-项目变量
-        ↓
-组变量
-        ↓
-工作流变量
-        ↓
-本机覆盖变量
-        ↓
-本次运行输入
-```
-
-优先级从低到高。建议使用明确命名空间：
-
-```text
-${env.baseUrl}       中心环境配置合并结果
-${local.dbPassword}  本机敏感配置
-${input.orderId}     本次运行输入
-${vars.token}        钩子或步骤提取变量
-${steps.login...}    指定步骤输出
-```
-
-钩子输出仍只写入本次执行上下文，不回写中心数据库或本地配置。敏感变量不在普通执行包、日志、事件或报告中保存明文。
-
-## 44. 执行与结果上传流程
-
-在线执行流程：
-
-```text
-Desktop 登录
-→ 获取项目权限和资产目录
-→ 下载发布版本执行包
-→ 缓存执行包
-→ Engine 在本机执行
-→ Desktop 实时展示事件
-→ 本地生成完整报告
-→ 上传脱敏报告和执行摘要
-→ Server 返回正式执行记录 ID
-```
-
-执行记录应绑定：
-
-```text
-workflowId
-workflowVersionId
-packageChecksum
-executorUserId
-executorMachineId
-desktopVersion
-engineVersion
-environmentSnapshot（脱敏）
-startedAt / finishedAt
-status
-stepResults
-```
-
-断网时允许执行仍在有效期内的已发布缓存版本。报告先写入本地待上传队列，网络恢复后按照 `clientExecutionId` 幂等补传。草稿离线执行不得作为正式公司报告。
-
-## 45. Server API 边界
-
-首版建议提供以下资源接口：
-
-```text
-/api/auth/session
-/api/projects
-/api/projects/{projectId}/members
-/api/groups
-/api/workflows
-/api/workflows/{id}/draft
-/api/workflows/{id}/publish
-/api/workflow-versions/{id}
-/api/workflow-versions/{id}/execution-package
-/api/executions
-/api/executions/{id}
-```
-
-所有修改接口携带用户身份和审计信息。草稿更新携带 `revision`；冲突时返回 `409 Conflict`，Desktop 引导用户刷新或另存，不自动覆盖服务端新版本。
-
-## 46. 权限与安全
-
-第一阶段采用项目级 RBAC：
-
-| 角色 | 权限 |
-|---|---|
-| 系统管理员 | 系统配置、所有项目和审计 |
-| 项目管理员 | 项目成员、变量、发布和报告管理 |
-| 测试开发 | 编辑草稿、调试和执行 |
-| 测试执行者 | 查看并执行已发布版本 |
-| 只读成员 | 查看定义和报告 |
-
-安全要求：
-
-- Server 只通过 HTTPS 暴露 API。
-- 中心数据库不向 Desktop 网络开放。
-- Desktop 不保存中心数据库账号。
-- Token 使用操作系统安全存储，不写入普通配置文件。
-- 服务端敏感变量使用 KMS/Vault 或服务端密钥加密。
-- 本机数据源密码继续使用本机密钥保护。
-- 执行包、日志和报告统一执行敏感字段脱敏。
-- 发布、权限修改和敏感配置访问必须记录审计日志。
-
-## 47. 集中化实施阶段
-
-### 47.1 第一阶段：最小资产闭环
-
-- 新建 `WorkflowTestModel` 和 `WorkflowTestServer`。
-- 将中心元数据库切换为 MySQL 或 PostgreSQL。
-- 完成用户登录和项目级权限。
-- 完成项目、组、工作流、步骤、钩子集中 CRUD。
-- 增加草稿 revision、发布版本和执行包。
-- Desktop 增加 Server Client、登录和模式切换。
-- Engine 支持直接执行不可变执行包。
-- Desktop 上传执行结果，Server 保存正式报告。
-- SQLite 调整为缓存、机器配置和待上传队列。
-- 真实业务数据源凭据继续保存在测试人员电脑。
-
-### 47.2 第二阶段：治理与规模化
-
-- 接入公司统一身份认证。
-- 接入 Vault/KMS 和临时数据库凭据。
-- 发布审批、版本对比和回滚。
-- 工作流模板、标签、复制和全文检索。
-- 报告趋势、质量看板和失败分析。
-- 专用执行 Agent、定时任务和无人值守执行。
-- 更细粒度的环境权限和敏感数据审计。
-
-## 48. 集中化验收标准
-
-1. 工作流资产统一保存在中心数据库，Desktop 无法直接访问该数据库。
-2. 用户只能查看和修改被授权项目。
-3. 多人修改同一草稿时不会静默覆盖。
-4. 每次正式执行绑定唯一的不可变工作流版本和校验和。
-5. 断开 Server 后，已下载版本仍可在有效期内本地执行。
-6. 被测接口和业务数据库连接均从测试人员电脑发起。
-7. 本机数据源密码不会上传到中心数据库。
-8. 执行报告可以离线暂存，并在恢复网络后幂等补传。
-9. Server 可以按项目、工作流、版本、人员和状态查询执行记录。
-10. Desktop 和 Engine 仍不启动 Spring MVC 或内置 Web Server。
-
-## 49. 集中化后端首版实现状态
-
-已新增独立 `WorkflowTestServer` Maven 项目，现有 Engine 和 Desktop 不依赖服务端 Web 技术。首版后端已经实现：
-
-- PostgreSQL 生产配置、MyBatis-Plus 和 Flyway V1/V2 数据库迁移。
-- 首次启动管理员初始化、BCrypt 密码、JWT 无状态登录。
-- 用户新增、编辑、启用和停用；每次请求都会重新校验用户启用状态及系统角色。
-- `ADMIN` 系统角色以及 `PROJECT_ADMIN`、`TEST_DEVELOPER`、`TEST_EXECUTOR`、`VIEWER` 项目角色。
-- 项目成员授权、角色调整和移除。
-- 项目、组、工作流的集中管理及项目级数据隔离。
-- 项目、组、工作流三级非敏感环境变量集中管理。
-- 工作流定义以 JSON 草稿保存，使用 revision 乐观锁防止多人静默覆盖。
-- 发布时固化工作流定义和三级环境变量，生成不可变版本与 SHA-256 校验和。
-- 只有项目管理员、测试开发和测试执行者可以下载正式执行包。
-- 统一的 400、401、403、409 JSON 错误响应。
-
-服务端集成测试使用 H2 PostgreSQL 兼容模式，覆盖用户登录、用户管理、项目授权、资产创建、三级变量、草稿冲突、版本发布、执行包下载、未登录访问和越权访问。生产部署仍以 PostgreSQL 为唯一首版验收数据库。
-
-## 50. Desktop 双模式实现状态
-
-Desktop 当前采用“本地工作台 + 可选集中资产窗口”，而不是把 Server 作为应用启动依赖：
-
-- 应用启动后直接加载本机 SQLite 中的项目、组、工作流、步骤、变量、数据源和历史记录。
-- 本地工作流通过 `WorkflowExecutionService` 在当前 Desktop 进程内执行，全程不访问 WorkflowTestServer。
-- 工具栏“集中资产（可选）”打开独立窗口，只有用户主动登录后才调用 Server API。
-- Server 未启动、地址不可达、登录失败或登录窗口被取消时，本地主窗口保持可操作，本地用例仍可创建、编辑和运行。
-- 集中资产窗口中的网络请求在后台线程执行，网络超时和服务端错误回到该窗口提示，不阻塞 JavaFX 界面线程。
-- 已发布的集中工作流先下载不可变执行包，再交给本机 Engine 执行，因此被测 HTTP 服务和业务数据库仍由测试人员电脑访问。
-- Desktop 与 Engine 均以 `WebApplicationType.NONE` 启动，不监听端口；Spring MVC 只存在于独立的 WorkflowTestServer。
-
-一期当前明确区分两种“离线”语义：本地 SQLite 用例完全离线可用；尚未下载的集中版本在断网时不可用。集中版本缓存、执行报告离线队列和恢复联网后的自动补传属于后续增强，不应与已经完成的本地离线能力混淆。

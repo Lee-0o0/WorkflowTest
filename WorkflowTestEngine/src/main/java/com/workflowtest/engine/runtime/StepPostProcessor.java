@@ -3,6 +3,7 @@ package com.workflowtest.engine.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -12,9 +13,9 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 @Component
+@RequiredArgsConstructor
 public class StepPostProcessor {
     private final ObjectMapper objectMapper;
-    public StepPostProcessor(ObjectMapper objectMapper) { this.objectMapper = objectMapper; }
 
     public JsonNode extract(JsonNode definitions, StepResult result, ExecutionContext context, boolean groupScope) {
         var extracted = objectMapper.createObjectNode();
@@ -29,7 +30,7 @@ public class StepPostProcessor {
                 throw new AssertionError("必需提取值不存在: " + target);
             if (value == null && definition.has("defaultValue")) value = objectMapper.convertValue(definition.get("defaultValue"), Object.class);
             context.putVariable(target, value, groupScope);
-            extracted.set(target.substring(5), objectMapper.valueToTree(value));
+            extracted.set(extractKey(target), objectMapper.valueToTree(value));
         }
         return extracted;
     }
@@ -54,6 +55,12 @@ public class StepPostProcessor {
         }
         if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
         return results;
+    }
+
+    private String extractKey(String target) {
+        if (target.startsWith("group.")) return target.substring(6);
+        if (target.startsWith("workflow.")) return target.substring(9);
+        return target;
     }
 
     private Object source(Object document, String source) {

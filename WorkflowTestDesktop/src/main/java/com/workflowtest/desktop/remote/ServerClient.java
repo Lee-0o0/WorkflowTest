@@ -40,8 +40,7 @@ public class ServerClient {
     public JsonNode createGroup(String projectId, String name, String description) { return request("POST", "/api/projects/" + projectId + "/groups", json.createObjectNode().put("name", name).put("description", description).put("sortOrder", 0), true); }
     public JsonNode createWorkflow(String groupId, String name, String description) {
         var body = json.createObjectNode().put("name", name).put("description", description).put("sortOrder", 0);
-        body.set("draft", json.createObjectNode().set("beforeWorkflow", json.createObjectNode().set("steps", json.createArrayNode())));
-        ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("draft")).set("steps", json.createArrayNode());
+        body.set("draft", json.createObjectNode().set("steps", json.createArrayNode()));
         return request("POST", "/api/groups/" + groupId + "/workflows", body, true);
     }
     public JsonNode updateDraft(String workflowId, int revision, JsonNode draft) { return request("PUT", "/api/workflows/" + workflowId + "/draft", json.createObjectNode().put("expectedRevision", revision).set("draft", draft), true); }

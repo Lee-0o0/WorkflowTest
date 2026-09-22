@@ -2,7 +2,7 @@ package com.workflowtest.engine.runtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
-import com.workflowtest.engine.api.DefinitionModels.EffectiveEnvironment;
+import com.workflowtest.engine.api.definition.DefinitionModels.EffectiveEnvironment;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,14 +23,17 @@ public class ExecutionContext {
     }
 
     public Object resolve(String path) {
-        if (path.startsWith("env.")) return nested(environment.effective(), path.substring(4));
-        if (path.startsWith("vars.")) {
-            String key = path.substring(5);
-            Object value = nested(workflowVariables, key);
-            return value != null ? value : nested(groupVariables, key);
-        }
+        if (path.startsWith("global.")) return nested(environment.global(), path.substring(7));
+        if (path.startsWith("project.")) return nested(environment.project(), path.substring(8));
+        if (path.startsWith("group.")) return resolveScoped(path.substring(6), groupVariables, environment.group());
+        if (path.startsWith("workflow.")) return resolveScoped(path.substring(9), workflowVariables, environment.workflow());
         if (path.startsWith("steps.")) return nested(stepResults, path.substring(6));
-        throw new IllegalArgumentException("不支持的变量路径: " + path);
+        return resolveScoped(path, workflowVariables, environment.workflow());
+    }
+
+    private Object resolveScoped(String key, Map<String, Object> runtime, Map<String, Object> configured) {
+        Object value = nested(runtime, key);
+        return value != null ? value : nested(configured, key);
     }
 
     private Object nested(Object root, String path) {
@@ -43,8 +46,11 @@ public class ExecutionContext {
     }
 
     public void putVariable(String path, Object value, boolean groupScope) {
-        if (!path.startsWith("vars.")) throw new IllegalArgumentException("提取目标必须以 vars. 开头");
-        String key = path.substring(5);
+        String prefix = groupScope ? "group." : "workflow.";
+        if (!path.startsWith(prefix)) {
+            throw new IllegalArgumentException("提取目标必须以 " + prefix + " 开头");
+        }
+        String key = path.substring(prefix.length());
         if (key.contains(".") || key.contains("[")) throw new IllegalArgumentException("一期提取目标仅支持单层变量名");
         (groupScope ? groupVariables : workflowVariables).put(key, value);
     }

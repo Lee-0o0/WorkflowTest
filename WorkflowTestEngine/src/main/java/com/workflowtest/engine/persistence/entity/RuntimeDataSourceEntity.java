@@ -8,7 +8,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("wt_runtime_datasource")
 public class RuntimeDataSourceEntity extends BaseEntity {
-    private String projectId;
+    private Long projectId;
     private String name;
     private String driverClass;
     private String jdbcUrl;

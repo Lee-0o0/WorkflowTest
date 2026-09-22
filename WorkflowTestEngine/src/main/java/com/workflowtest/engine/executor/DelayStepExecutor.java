@@ -3,17 +3,18 @@ package com.workflowtest.engine.executor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.workflowtest.engine.api.DefinitionModels.StepType;
+import com.workflowtest.engine.api.definition.DefinitionModels.StepType;
 import com.workflowtest.engine.runtime.ExecutionContext;
 import com.workflowtest.engine.runtime.RuntimeStep;
 import com.workflowtest.engine.runtime.StepExecutor;
 import com.workflowtest.engine.runtime.StepResult;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class DelayStepExecutor implements StepExecutor {
     private final ObjectMapper objectMapper;
-    public DelayStepExecutor(ObjectMapper objectMapper) { this.objectMapper = objectMapper; }
     @Override public StepType supports() { return StepType.DELAY; }
 
     @Override

@@ -1,6 +1,6 @@
 package com.workflowtest.engine.runtime;
 
-import com.workflowtest.engine.api.DefinitionModels.StepType;
+import com.workflowtest.engine.api.definition.DefinitionModels.StepType;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumMap;

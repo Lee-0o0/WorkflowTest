@@ -19,7 +19,6 @@
     <modules>
         <module>WorkflowTestEngine</module>
         <module>WorkflowTestDesktop</module>
-        <module>WorkflowTestServer</module>
     </modules>
 
     <properties>
@@ -29,7 +28,8 @@
         <sqlite.version>3.49.1.0</sqlite.version>
         <flyway.version>9.22.3</flyway.version>
         <javafx.version>21.0.7</javafx.version>
-        <jjwt.version>0.12.6</jjwt.version>
+        <atlantafx.version>2.1.0</atlantafx.version>
+        <ikonli.version>12.4.0</ikonli.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -59,6 +59,21 @@
                 <groupId>org.openjfx</groupId>
                 <artifactId>javafx-fxml</artifactId>
                 <version>${javafx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.mkpaz</groupId>
+                <artifactId>atlantafx-base</artifactId>
+                <version>${atlantafx.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.kordamp.ikonli</groupId>
+                <artifactId>ikonli-javafx</artifactId>
+                <version>${ikonli.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.kordamp.ikonli</groupId>
+                <artifactId>ikonli-feather-pack</artifactId>
+                <version>${ikonli.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

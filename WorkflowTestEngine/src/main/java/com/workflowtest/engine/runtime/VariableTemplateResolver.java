@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.RequiredArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.Iterator;
@@ -12,11 +14,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Component
+@RequiredArgsConstructor
 public class VariableTemplateResolver {
     private static final Pattern VARIABLE = Pattern.compile("\\$\\{([^}]+)}");
     private final ObjectMapper objectMapper;
-
-    public VariableTemplateResolver(ObjectMapper objectMapper) { this.objectMapper = objectMapper; }
 
     public JsonNode resolve(JsonNode source, ExecutionContext context) {
         if (source == null) return objectMapper.nullNode();

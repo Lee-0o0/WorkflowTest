@@ -1,11 +1,15 @@
 package com.workflowtest.engine.executor;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
-import com.workflowtest.engine.persistence.entity.RuntimeDataSourceEntity;
-import com.workflowtest.engine.persistence.mapper.RuntimeDataSourceMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workflowtest.engine.api.definition.DefinitionModels.ProjectResourceType;
+import com.workflowtest.engine.persistence.entity.ProjectResourceEntity;
+import com.workflowtest.engine.persistence.mapper.ProjectResourceMapper;
 import com.workflowtest.engine.security.SecretCipher;
+import com.workflowtest.engine.support.JdbcConnectionConfig;
+import com.workflowtest.engine.support.JdbcConnectionConfig;
 import jakarta.annotation.PreDestroy;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -13,39 +17,71 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
+@RequiredArgsConstructor
 public class RuntimeDataSourceManager {
-    private final RuntimeDataSourceMapper mapper;
+    private final ProjectResourceMapper mapper;
     private final SecretCipher cipher;
-    private final Map<String, HikariDataSource> pools = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper;
+    private final Map<Long, com.zaxxer.hikari.HikariDataSource> pools = new ConcurrentHashMap<>();
 
-    public RuntimeDataSourceManager(RuntimeDataSourceMapper mapper, SecretCipher cipher) {
-        this.mapper = mapper; this.cipher = cipher;
-    }
-
-    public DataSource get(String id) {
+    public DataSource get(Long id) {
         return pools.computeIfAbsent(id, this::create);
     }
 
-    public RuntimeDataSourceEntity definition(String id) {
-        RuntimeDataSourceEntity entity = mapper.selectById(id);
+    public DatasourceRuntimeDefinition definition(Long id) {
+        ProjectResourceEntity entity = requireDatasource(id);
+        Map<String, Object> config = readConfig(entity.getConfigJson());
+        return new DatasourceRuntimeDefinition(
+                entity.getId(),
+                string(config, "driverClass"),
+                JdbcConnectionConfig.resolveJdbcUrl(config),
+                string(config, "username"),
+                string(config, "encryptedPassword"),
+                bool(config, "allowDangerousSql"));
+    }
+
+    private com.zaxxer.hikari.HikariDataSource create(Long id) {
+        DatasourceRuntimeDefinition source = definition(id);
+        var config = new com.zaxxer.hikari.HikariConfig();
+        config.setPoolName("workflow-runtime-" + id);
+        config.setDriverClassName(source.driverClass());
+        config.setJdbcUrl(source.jdbcUrl());
+        config.setUsername(source.username());
+        config.setPassword(cipher.decrypt(source.encryptedPassword()));
+        config.setMaximumPoolSize(3);
+        config.setConnectionTimeout(5000);
+        return new com.zaxxer.hikari.HikariDataSource(config);
+    }
+
+    private ProjectResourceEntity requireDatasource(Long id) {
+        ProjectResourceEntity entity = mapper.selectById(id);
         if (entity == null || !Boolean.TRUE.equals(entity.getEnabled()))
             throw new IllegalArgumentException("数据源不存在或已禁用: " + id);
+        if (!ProjectResourceType.DATASOURCE.name().equals(entity.getResourceType()))
+            throw new IllegalArgumentException("资源不是 JDBC 数据源: " + id);
         return entity;
     }
 
-    private HikariDataSource create(String id) {
-        RuntimeDataSourceEntity source = definition(id);
-        HikariConfig config = new HikariConfig();
-        config.setPoolName("workflow-runtime-" + id.substring(0, Math.min(8, id.length())));
-        config.setDriverClassName(source.getDriverClass());
-        config.setJdbcUrl(source.getJdbcUrl());
-        config.setUsername(source.getUsername());
-        config.setPassword(cipher.decrypt(source.getEncryptedPassword()));
-        config.setMaximumPoolSize(3);
-        config.setConnectionTimeout(5000);
-        return new HikariDataSource(config);
+    @PreDestroy
+    public void close() {
+        pools.values().forEach(com.zaxxer.hikari.HikariDataSource::close);
     }
 
-    @PreDestroy
-    public void close() { pools.values().forEach(HikariDataSource::close); }
+    private Map<String, Object> readConfig(String json) {
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            throw new IllegalArgumentException("资源配置 JSON 无效", e);
+        }
+    }
+
+    private static String string(Map<String, Object> config, String key) {
+        Object value = config.get(key);
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static boolean bool(Map<String, Object> config, String key) {
+        Object value = config.get(key);
+        return value instanceof Boolean b ? b : Boolean.parseBoolean(String.valueOf(value));
+    }
 }

@@ -1,7 +1,7 @@
 package com.workflowtest.engine.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.workflowtest.engine.api.DefinitionModels.StepType;
+import com.workflowtest.engine.api.definition.DefinitionModels.StepType;
 
 public interface StepExecutor {
     StepType supports();

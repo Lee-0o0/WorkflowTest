@@ -1,49 +1,79 @@
 package com.workflowtest.desktop.ui;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workflowtest.engine.api.BackupService;
-import com.workflowtest.engine.api.DefinitionModels.*;
-import com.workflowtest.engine.api.DefinitionService;
-import com.workflowtest.engine.api.ExecutionModels.*;
-import com.workflowtest.engine.api.ExecutionQueryService;
-import com.workflowtest.engine.api.WorkflowExecutionService;
+import com.workflowtest.engine.api.support.BackupService;
+import com.workflowtest.engine.api.definition.DefinitionModels.*;
+import com.workflowtest.engine.api.execution.ExecutionControlService;
+import com.workflowtest.engine.api.execution.ExecutionHistoryService;
+import com.workflowtest.engine.api.execution.ExecutionModels.*;
+import com.workflowtest.engine.api.definition.GlobalVariableService;
+import com.workflowtest.engine.api.execution.GroupExecutionService;
+import com.workflowtest.engine.api.definition.HookDefinitionService;
+import com.workflowtest.engine.api.execution.ProjectExecutionService;
+import com.workflowtest.engine.api.definition.ProjectService;
+import com.workflowtest.engine.api.definition.ProjectTreeService;
+import com.workflowtest.engine.api.definition.StepDefinitionService;
+import com.workflowtest.engine.api.execution.StepExecutionQueryService;
+import com.workflowtest.engine.api.definition.WorkflowDefinitionService;
+import com.workflowtest.engine.api.definition.WorkflowGroupService;
+import com.workflowtest.engine.api.execution.WorkflowRunService;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
-import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.*;
-import javafx.scene.input.MouseButton;
+import javafx.scene.input.ContextMenuEvent;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.stage.DirectoryChooser;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import org.kordamp.ikonli.feather.Feather;
 import org.springframework.stereotype.Component;
 
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.Objects;
 
 @Component
-public class MainWindow {
-    private final DefinitionService definitions;
-    private final WorkflowExecutionService executions;
-    private final ExecutionQueryService history;
+@RequiredArgsConstructor
+public class MainWindow implements TreeContextMenus.Host {
+    private final ProjectTreeService projectTree;
+    private final ProjectService projectService;
+    private final GlobalVariableService globalVariables;
+    private final WorkflowGroupService workflowGroups;
+    private final WorkflowDefinitionService workflowDefinitions;
+    private final StepDefinitionService stepDefinitions;
+    private final HookDefinitionService hookDefinitions;
+    private final ProjectExecutionService projectExecutions;
+    private final GroupExecutionService groupExecutions;
+    private final WorkflowRunService workflowRuns;
+    private final ExecutionControlService executionControl;
+    private final ExecutionHistoryService executionHistory;
+    private final StepExecutionQueryService stepExecutions;
     private final ObjectMapper objectMapper;
     private final BackupService backups;
-    private final RemoteAssetWindow remoteAssets;
+    private final DetailTabPanel detailTab;
 
     private final BorderPane root = new BorderPane();
     private final TreeView<NodeRef> tree = new TreeView<>();
-    private final VBox details = new VBox(10);
-    private final TextArea executionLog = new TextArea();
     private final Label status = new Label("本地模式（SQLite）· 就绪");
-    private final TableView<ExecutionQueryService.ExecutionSummary> historyTable = new TableView<>();
+    private final TableView<ExecutionSummary> historyTable = new TableView<>();
+    private final Button themeToggle = UiIcons.iconButton(Feather.MOON, "切换主题", () -> { });
     private ExecutionHandle activeExecution;
+    private ContextMenu activeContextMenu;
+    private StackPane centerStack;
+    private SplitPane projectWorkspace;
+    private VBox globalEnvironmentView;
+    private VBox executionHistoryView;
+    private TableView<GlobalVariable> globalEnvTable;
 
-    public MainWindow(DefinitionService definitions, WorkflowExecutionService executions,
-                      ExecutionQueryService history, ObjectMapper objectMapper, BackupService backups,
-                      RemoteAssetWindow remoteAssets) {
-        this.definitions = definitions; this.executions = executions;
-        this.history = history; this.objectMapper = objectMapper; this.backups = backups; this.remoteAssets = remoteAssets;
+    private enum CenterView { PROJECT, GLOBAL_ENV, HISTORY }
+
+    @PostConstruct
+    void init() {
         build();
         refreshTree();
     }
@@ -51,62 +81,292 @@ public class MainWindow {
     public Parent root() { return root; }
 
     private void build() {
-        root.setTop(toolbar());
-        tree.setShowRoot(true);
+        root.getStyleClass().add("content-panel");
+        root.setTop(headerBar());
+        themeToggle.setOnAction(event -> toggleTheme());
+        themeToggle.setTooltip(new Tooltip("切换为深色主题"));
+        themeToggle.setTooltip(new Tooltip("切换为深色主题"));
+        tree.setShowRoot(false);
         tree.setPrefWidth(340);
-        tree.getSelectionModel().selectedItemProperty().addListener((obs, old, value) -> showDetails(value));
-        tree.setOnMouseClicked(event -> {
-            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) editSelected();
-        });
-
-        details.setPadding(new Insets(18));
-        ScrollPane detailScroll = new ScrollPane(details);
-        detailScroll.setFitToWidth(true);
-
-        executionLog.setEditable(false);
-        executionLog.setWrapText(true);
-        executionLog.setStyle("-fx-font-family: Consolas;");
+        tree.getStyleClass().add("tree-panel");
+        configureTreeContextMenu();
+        tree.getSelectionModel().selectedItemProperty().addListener((obs, old, value) ->
+                detailTab.showSelection(toSelection(value), editorActions()));
 
         configureHistoryTable();
-        TabPane tabs = new TabPane(
-                tab("详情", detailScroll), tab("执行日志", executionLog), tab("历史记录", historyTable));
-        tabs.getSelectionModel().selectedItemProperty().addListener((obs, old, value) -> {
-            if (value != null && "历史记录".equals(value.getText())) refreshHistory();
+        configureGlobalEnvironmentTable();
+
+        VBox treePanel = new VBox(tree);
+        treePanel.getStyleClass().add("sidebar-panel");
+        tree.addEventFilter(ContextMenuEvent.CONTEXT_MENU_REQUESTED, event -> {
+            if (event.getTarget() != tree) return;
+            showContextMenu(TreeContextMenus.forEmptyArea(this), tree, event.getScreenX(), event.getScreenY());
+            event.consume();
         });
-        SplitPane split = new SplitPane(tree, tabs);
-        split.setOrientation(Orientation.HORIZONTAL);
-        split.setDividerPositions(0.25);
-        root.setCenter(split);
-        HBox statusBar = new HBox(status); statusBar.getStyleClass().add("status-bar");
+        VBox.setVgrow(tree, Priority.ALWAYS);
+        projectWorkspace = new SplitPane(treePanel, detailTab.root());
+        projectWorkspace.setOrientation(Orientation.HORIZONTAL);
+        projectWorkspace.setDividerPositions(0.25);
+
+        globalEnvironmentView = buildGlobalEnvironmentView();
+        executionHistoryView = buildExecutionHistoryView();
+
+        centerStack = new StackPane(projectWorkspace, globalEnvironmentView, executionHistoryView);
+        showCenterView(CenterView.PROJECT);
+        root.setCenter(centerStack);
+        HBox statusBar = new HBox(status);
+        statusBar.setAlignment(Pos.CENTER_LEFT);
+        statusBar.getStyleClass().add("status-bar");
         root.setBottom(statusBar);
+        root.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> dismissContextMenu());
+        detailTab.root().addEventFilter(MouseEvent.MOUSE_PRESSED, event -> dismissContextMenu());
     }
 
-    private ToolBar toolbar() {
-        Button remote = button("集中资产（可选）", () -> remoteAssets.show(root.getScene() == null ? null : root.getScene().getWindow()), false);
-        Button addProject = button("新建项目", this::addProject, false);
-        Button addGroup = button("新建组", this::addGroup, false);
-        Button addWorkflow = button("新建工作流", this::addWorkflow, false);
-        Button addStep = button("新增步骤", this::addStep, false);
-        Button addHook = button("新增前置钩子步骤", this::addHookStep, false);
-        Button variable = button("环境变量", this::editVariables, false);
-        Button datasource = button("数据源", this::addDataSource, false);
-        Button up = button("上移", () -> moveSelected(-1), false);
-        Button down = button("下移", () -> moveSelected(1), false);
-        Button backup = button("备份", this::backup, false);
-        Button run = button("运行", this::runSelected, true);
-        Button stop = button("停止", this::stopExecution, false);
-        Button refresh = button("刷新", this::refreshTree, false);
-        Button delete = button("删除", this::deleteSelected, false); delete.getStyleClass().add("danger");
-        return new ToolBar(remote, new Separator(), addProject, addGroup, addWorkflow, addStep, addHook,
-                new Separator(), variable, datasource, up, down, new Separator(), run, stop, backup,
-                new Separator(), refresh, delete);
+    private void showContextMenu(ContextMenu menu, Node owner, double screenX, double screenY) {
+        dismissContextMenu();
+        activeContextMenu = menu;
+        menu.setAutoHide(true);
+        menu.setOnHidden(e -> {
+            if (activeContextMenu == menu) activeContextMenu = null;
+        });
+        menu.show(owner, screenX, screenY);
     }
 
-    private void refreshTree() {
+    private void dismissContextMenu() {
+        if (activeContextMenu != null && activeContextMenu.isShowing()) {
+            activeContextMenu.hide();
+        }
+    }
+
+    private HBox headerBar() {
+        MenuButton projectMenu = new MenuButton("项目管理");
+        projectMenu.getItems().addAll(
+                UiIcons.menuItem(Feather.FOLDER, "打开", this::openProjectManagement),
+                UiIcons.menuItem(Feather.FOLDER_PLUS, "新建项目", this::createProjectDialog),
+                new SeparatorMenuItem(),
+                UiIcons.menuItem(Feather.SAVE, "备份数据库", this::backup));
+        Button globalEnv = navButton("全局环境变量", this::showGlobalEnvironment);
+        Button history = navButton("执行历史", this::showExecutionHistory);
+        Button about = navButton("关于", EditorDialogs::showAbout);
+        Region menuSpacer = new Region();
+        HBox.setHgrow(menuSpacer, Priority.ALWAYS);
+        HBox menuBar = new HBox(4, projectMenu, globalEnv, history, about, menuSpacer, themeToggle);
+        menuBar.getStyleClass().add("app-menu-bar");
+        menuBar.setAlignment(Pos.CENTER_LEFT);
+        menuBar.getStyleClass().add("app-header");
+        return menuBar;
+    }
+
+    private Button navButton(String text, Runnable action) {
+        Button button = new Button(text);
+        button.getStyleClass().add("nav-button");
+        button.setOnAction(event -> action.run());
+        return button;
+    }
+
+    private void openProjectManagement() {
+        showCenterView(CenterView.PROJECT);
+        refreshTree();
+        status.setText("项目管理");
+    }
+
+    private void createProjectDialog() {
+        EditorDialogs.nameDialog("新建项目", "新项目", "").ifPresent(values -> {
+            try {
+                if (values[0].isBlank()) throw new IllegalArgumentException("名称不能为空");
+                Project project = projectService.save(null, values[0], values[1]);
+                showCenterView(CenterView.PROJECT);
+                refreshTree();
+                selectProject(project.id());
+                detailTab.showProjectDetail(toSelection(findProjectItem(project.id())), editorActions());
+                showCenterView(CenterView.PROJECT);
+                status.setText("项目已创建");
+            } catch (Exception e) {
+                fail(e);
+            }
+        });
+    }
+
+    private void showGlobalEnvironment() {
+        showCenterView(CenterView.GLOBAL_ENV);
+        refreshGlobalEnvironment();
+        status.setText("全局环境变量");
+    }
+
+    private void showExecutionHistory() {
+        showCenterView(CenterView.HISTORY);
+        refreshHistory();
+        status.setText("执行历史");
+    }
+
+    private void showCenterView(CenterView view) {
+        projectWorkspace.setVisible(view == CenterView.PROJECT);
+        projectWorkspace.setManaged(view == CenterView.PROJECT);
+        globalEnvironmentView.setVisible(view == CenterView.GLOBAL_ENV);
+        globalEnvironmentView.setManaged(view == CenterView.GLOBAL_ENV);
+        executionHistoryView.setVisible(view == CenterView.HISTORY);
+        executionHistoryView.setManaged(view == CenterView.HISTORY);
+    }
+
+    private VBox buildGlobalEnvironmentView() {
+        Label title = sectionLabel("全局环境变量");
+        Label hint = new Label("""
+                持久化存储于本地 SQLite；application.yml 中 workflowtest.global.* 为默认兜底，数据库同名变量优先。
+                运行时通过 ${global.变量名} 引用。""");
+        hint.getStyleClass().add("hint-label");
+        hint.setWrapText(true);
+        Button refresh = UiIcons.textButton(Feather.REFRESH_CW, "刷新", this::refreshGlobalEnvironment);
+        Button add = UiIcons.textButton(Feather.PLUS, "新增", this::addGlobalVariable);
+        globalEnvTable.setPlaceholder(new Label("尚未配置全局环境变量"));
+        globalEnvTable.setRowFactory(view -> {
+            TableRow<GlobalVariable> row = new TableRow<>();
+            row.setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2 && !row.isEmpty()) editGlobalVariable(row.getItem());
+            });
+            return row;
+        });
+        VBox.setVgrow(globalEnvTable, Priority.ALWAYS);
+        VBox panel = new VBox(12, title, hint, new HBox(8, add, refresh), globalEnvTable);
+        panel.getStyleClass().add("content-panel");
+        panel.setPadding(new javafx.geometry.Insets(18));
+        return panel;
+    }
+
+    private VBox buildExecutionHistoryView() {
+        Label title = sectionLabel("执行历史");
+        Button refresh = UiIcons.textButton(Feather.REFRESH_CW, "刷新", this::refreshHistory);
+        historyTable.setPlaceholder(new Label("暂无执行记录"));
+        VBox.setVgrow(historyTable, Priority.ALWAYS);
+        VBox panel = new VBox(12, title, refresh, historyTable);
+        panel.getStyleClass().add("content-panel");
+        panel.setPadding(new javafx.geometry.Insets(18));
+        return panel;
+    }
+
+    private Label sectionLabel(String text) {
+        Label label = new Label(text);
+        label.getStyleClass().add("section-title");
+        return label;
+    }
+
+    private void configureGlobalEnvironmentTable() {
+        globalEnvTable = new TableView<>();
+        TableColumn<GlobalVariable, String> keyCol = new TableColumn<>("变量名");
+        keyCol.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().key()));
+        TableColumn<GlobalVariable, String> valueCol = new TableColumn<>("值");
+        valueCol.setCellValueFactory(cell -> new SimpleStringProperty(
+                EditorForms.json(objectMapper, cell.getValue().value())));
+        TableColumn<GlobalVariable, String> refCol = new TableColumn<>("引用");
+        refCol.setCellValueFactory(cell -> new SimpleStringProperty("${global." + cell.getValue().key() + "}"));
+        globalEnvTable.getColumns().addAll(keyCol, valueCol, refCol);
+        globalEnvTable.getColumns().add(UiIcons.actionsColumn(this::editGlobalVariable, this::deleteGlobalVariable));
+        globalEnvTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+    }
+
+    private void refreshGlobalEnvironment() {
         try {
-            TreeItem<NodeRef> rootItem = new TreeItem<>(new NodeRef(NodeType.ROOT, "root", "测试工程", null, null, null, null));
+            globalEnvTable.setItems(FXCollections.observableArrayList(globalVariables.list()));
+        } catch (Exception e) {
+            fail(e);
+        }
+    }
+
+    private void addGlobalVariable() {
+        EditorDialogs.globalVariableDialog(null, objectMapper).ifPresent(v -> {
+            globalVariables.save(v);
+            refreshGlobalEnvironment();
+            status.setText("全局环境变量已保存");
+        });
+    }
+
+    private void editGlobalVariable(GlobalVariable selected) {
+        EditorDialogs.globalVariableDialog(selected, objectMapper).ifPresent(v -> {
+            globalVariables.save(v);
+            refreshGlobalEnvironment();
+            status.setText("全局环境变量已保存");
+        });
+    }
+
+    private void deleteGlobalVariable(GlobalVariable selected) {
+        if (!EditorDialogs.confirm("确认删除全局变量「" + selected.key() + "」？")) return;
+        globalVariables.delete(selected.id());
+        refreshGlobalEnvironment();
+        status.setText("全局环境变量已删除");
+    }
+
+    private void selectProject(Long projectId) {
+        TreeItem<NodeRef> item = findProjectItem(projectId);
+        if (item != null) tree.getSelectionModel().select(item);
+    }
+
+    private TreeItem<NodeRef> findProjectItem(Long projectId) {
+        if (tree.getRoot() == null || projectId == null) return null;
+        for (TreeItem<NodeRef> child : tree.getRoot().getChildren()) {
+            if (child.getValue() != null && child.getValue().type() == NodeType.PROJECT
+                    && Objects.equals(child.getValue().id(), projectId)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private void configureTreeContextMenu() {
+        tree.setCellFactory(view -> {
+            TreeCell<NodeRef> cell = new TreeCell<>() {
+                @Override
+                protected void updateItem(NodeRef item, boolean empty) {
+                    super.updateItem(item, empty);
+                    setText(empty || item == null ? null : item.name());
+                }
+            };
+            cell.setOnContextMenuRequested(event -> {
+                if (cell.isEmpty() || cell.getItem() == null) return;
+                tree.getSelectionModel().select(cell.getTreeItem());
+                showContextMenu(TreeContextMenus.forNode(cell.getItem(), MainWindow.this),
+                        cell, event.getScreenX(), event.getScreenY());
+                event.consume();
+            });
+            cell.setOnMousePressed(event -> {
+                if (event.isPrimaryButtonDown()) dismissContextMenu();
+            });
+            cell.setOnMouseClicked(event -> {
+                if (event.getClickCount() != 2 || cell.isEmpty() || cell.getItem() == null) return;
+                tree.getSelectionModel().select(cell.getTreeItem());
+                DetailTabPanel.Selection selection = toSelection(cell.getTreeItem());
+                if (cell.getItem().type() == NodeType.PROJECT) {
+                    detailTab.showProjectDetail(selection, editorActions());
+                } else {
+                    detailTab.showSelection(selection, editorActions());
+                }
+            });
+            return cell;
+        });
+    }
+
+    private void toggleTheme() {
+        AppTheme.toggle();
+        themeToggle.setGraphic(UiIcons.icon(UiIcons.themeIcon(), 16));
+        themeToggle.setTooltip(new Tooltip(AppTheme.isDarkMode() ? "切换为浅色主题" : "切换为深色主题"));
+    }
+
+    private DetailTabPanel.EditorActions editorActions() {
+        return new DetailTabPanel.EditorActions() {
+            @Override public void refreshTree() { MainWindow.this.refreshTree(); }
+            @Override public void selectEditTab() { showCenterView(CenterView.PROJECT); }
+            @Override public void onStatus(String message) { status.setText(message); }
+            @Override public void fail(Throwable error) { MainWindow.this.fail(error); }
+            @Override public void showInfo(String title, String message) { EditorDialogs.showInfo(title, message); }
+            @Override public boolean confirm(String message) { return EditorDialogs.confirm(message); }
+        };
+    }
+
+    @Override
+    public void refreshTree() {
+        TreeItem<NodeRef> selected = tree.getSelectionModel().getSelectedItem();
+        try {
+            TreeItem<NodeRef> rootItem = new TreeItem<>(new NodeRef(NodeType.ROOT, null, "测试工程", null, null, null, null));
             rootItem.setExpanded(true);
-            for (ProjectNode projectNode : definitions.loadTree().projects()) {
+            for (ProjectNode projectNode : projectTree.loadTree().projects()) {
                 Project project = projectNode.project();
                 TreeItem<NodeRef> projectItem = new TreeItem<>(new NodeRef(NodeType.PROJECT, project.id(), project.name(),
                         project.id(), null, null, project));
@@ -116,13 +376,12 @@ public class MainWindow {
                     TreeItem<NodeRef> groupItem = new TreeItem<>(new NodeRef(NodeType.GROUP, group.id(), group.name(),
                             project.id(), group.id(), null, group));
                     groupItem.setExpanded(true);
-                    addHookNodes(groupItem, OwnerType.GROUP, group.id(), project.id(), group.id(), null);
+                    addGroupHookNodes(groupItem, group.id(), project.id(), HookType.BEFORE_GROUP);
                     for (WorkflowNode workflowNode : groupNode.workflows()) {
                         Workflow workflow = workflowNode.workflow();
                         TreeItem<NodeRef> workflowItem = new TreeItem<>(new NodeRef(NodeType.WORKFLOW, workflow.id(), workflow.name(),
                                 project.id(), group.id(), workflow.id(), workflow));
                         workflowItem.setExpanded(true);
-                        addHookNodes(workflowItem, OwnerType.WORKFLOW, workflow.id(), project.id(), group.id(), workflow.id());
                         for (Step step : workflowNode.steps()) {
                             workflowItem.getChildren().add(new TreeItem<>(new NodeRef(NodeType.STEP, step.id(),
                                     step.sortOrder() + ". " + step.name() + " [" + step.type() + "]",
@@ -130,195 +389,213 @@ public class MainWindow {
                         }
                         groupItem.getChildren().add(workflowItem);
                     }
+                    addGroupHookNodes(groupItem, group.id(), project.id(), HookType.AFTER_GROUP);
                     projectItem.getChildren().add(groupItem);
                 }
                 rootItem.getChildren().add(projectItem);
             }
             tree.setRoot(rootItem);
+            if (selected != null) {
+                reselect(rootItem, selected.getValue());
+            }
             status.setText("工程树已刷新");
+            detailTab.showSelection(toSelection(tree.getSelectionModel().getSelectedItem()), editorActions());
         } catch (Exception e) { fail(e); }
     }
 
-    private void addHookNodes(TreeItem<NodeRef> parent, OwnerType ownerType, String ownerId,
-                              String projectId, String groupId, String workflowId) {
-        for (Hook hook : definitions.listHooks(ownerType, ownerId)) {
-            TreeItem<NodeRef> hookItem = new TreeItem<>(new NodeRef(NodeType.HOOK, hook.id(),
-                    hook.hookType() == HookType.BEFORE_GROUP ? "组前置钩子" : "工作流前置钩子",
-                    projectId, groupId, workflowId, hook));
+    private void reselect(TreeItem<NodeRef> rootItem, NodeRef target) {
+        if (target == null || target.type() == NodeType.ROOT) return;
+        TreeItem<NodeRef> found = findNode(rootItem, target.id(), target.type());
+        if (found != null) tree.getSelectionModel().select(found);
+    }
+
+    private TreeItem<NodeRef> findNode(TreeItem<NodeRef> item, Long id, NodeType type) {
+        if (item.getValue() != null && item.getValue().type() == type && java.util.Objects.equals(id, item.getValue().id())) {
+            return item;
+        }
+        for (TreeItem<NodeRef> child : item.getChildren()) {
+            TreeItem<NodeRef> found = findNode(child, id, type);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private void addGroupHookNodes(TreeItem<NodeRef> groupItem, Long groupId, Long projectId, HookType hookType) {
+        for (Hook hook : hookDefinitions.listByGroup(groupId)) {
+            if (hook.hookType() != hookType) continue;
+            String label = hookType == HookType.BEFORE_GROUP ? "组前置钩子" : "组后置钩子";
+            TreeItem<NodeRef> hookItem = new TreeItem<>(new NodeRef(NodeType.HOOK, hook.id(), label,
+                    projectId, groupId, null, hook));
             for (Step step : hook.steps()) {
                 hookItem.getChildren().add(new TreeItem<>(new NodeRef(NodeType.HOOK_STEP, step.id(),
                         step.sortOrder() + ". " + step.name() + " [" + step.type() + "]",
-                        projectId, groupId, workflowId, step)));
+                        projectId, groupId, null, step)));
             }
-            parent.getChildren().add(hookItem);
+            groupItem.getChildren().add(hookItem);
         }
     }
 
-    private void showDetails(TreeItem<NodeRef> item) {
-        details.getChildren().clear();
-        if (item == null) return;
+    private DetailTabPanel.Selection toSelection(TreeItem<NodeRef> item) {
+        if (item == null || item.getValue() == null) return null;
         NodeRef ref = item.getValue();
-        Label title = new Label(ref.name()); title.getStyleClass().add("section-title");
-        details.getChildren().addAll(title, new Label("类型：" + ref.type()));
-        if (ref.value() instanceof Project p) details.getChildren().add(new Label(nullSafe(p.description())));
-        if (ref.value() instanceof Group g) details.getChildren().add(new Label(nullSafe(g.description())));
-        if (ref.value() instanceof Workflow w) details.getChildren().add(new Label(nullSafe(w.description())));
-        if (ref.value() instanceof Hook hook) {
-            details.getChildren().add(new Label("失败策略：" + hook.failureStrategy()));
+        return new DetailTabPanel.Selection(
+                switch (ref.type()) {
+                    case ROOT -> DetailTabPanel.SelectionKind.ROOT;
+                    case PROJECT -> DetailTabPanel.SelectionKind.PROJECT;
+                    case GROUP -> DetailTabPanel.SelectionKind.GROUP;
+                    case WORKFLOW -> DetailTabPanel.SelectionKind.WORKFLOW;
+                    case HOOK -> DetailTabPanel.SelectionKind.HOOK;
+                    case STEP -> DetailTabPanel.SelectionKind.STEP;
+                    case HOOK_STEP -> DetailTabPanel.SelectionKind.HOOK_STEP;
+                },
+                ref.id(), ref.name(), ref.projectId(), ref.groupId(), ref.workflowId(), ref.value());
+    }
+
+    @Override
+    public void addGroup(NodeRef context) {
+        Long projectId = context.type() == NodeType.PROJECT ? context.id() : context.projectId();
+        if (projectId == null) { EditorDialogs.showError("请在项目上新建组"); return; }
+        detailTab.showCreate(new DetailTabPanel.CreateRequest(DetailTabPanel.SelectionKind.GROUP,
+                projectId, null, null, null), editorActions());
+        showCenterView(CenterView.PROJECT);
+    }
+
+    @Override
+    public void addWorkflow(NodeRef context) {
+        Long groupId = context.type() == NodeType.GROUP ? context.id() : context.groupId();
+        if (groupId == null) { EditorDialogs.showError("请在组上新建工作流"); return; }
+        detailTab.showCreate(new DetailTabPanel.CreateRequest(DetailTabPanel.SelectionKind.WORKFLOW,
+                context.projectId(), groupId, null, null), editorActions());
+        showCenterView(CenterView.PROJECT);
+    }
+
+    @Override
+    public void addStep(NodeRef context) {
+        Long workflowId = context.type() == NodeType.WORKFLOW ? context.id() : context.workflowId();
+        if (workflowId == null) { EditorDialogs.showError("请在工作流上新建步骤"); return; }
+        detailTab.showCreate(new DetailTabPanel.CreateRequest(DetailTabPanel.SelectionKind.STEP,
+                context.projectId(), context.groupId(), workflowId, workflowId), editorActions());
+        showCenterView(CenterView.PROJECT);
+    }
+
+    @Override
+    public void addHookStep(NodeRef context) {
+        if (context.type() != NodeType.HOOK) {
+            EditorDialogs.showError("请在钩子节点上新建钩子步骤");
+            return;
         }
-        if (ref.value() instanceof Step step) {
-            TextArea config = readonly("配置\n" + pretty(step.configJson()) + "\n\n提取\n" + pretty(step.extractionJson())
-                    + "\n\n断言\n" + pretty(step.assertionJson()));
-            details.getChildren().add(config);
+        detailTab.showCreate(new DetailTabPanel.CreateRequest(DetailTabPanel.SelectionKind.HOOK_STEP,
+                context.projectId(), context.groupId(), null, context.id()), editorActions());
+        showCenterView(CenterView.PROJECT);
+    }
+
+    @Override
+    public void addGroupHookStep(NodeRef context, HookType hookType) {
+        Long groupId = context.type() == NodeType.GROUP ? context.id() : context.groupId();
+        if (groupId == null) {
+            EditorDialogs.showError("请在组上新建钩子步骤");
+            return;
         }
-        if (ref.projectId() != null) {
-            showEnvironment(ref);
+        Hook hook = hookDefinitions.find(groupId, hookType).orElse(null);
+        if (hook == null) {
+            EditorDialogs.showError(hookType == HookType.BEFORE_GROUP ? "组前置钩子不存在" : "组后置钩子不存在");
+            return;
         }
+        detailTab.showCreate(new DetailTabPanel.CreateRequest(DetailTabPanel.SelectionKind.HOOK_STEP,
+                context.projectId(), groupId, null, hook.id()), editorActions());
+        showCenterView(CenterView.PROJECT);
     }
 
-    private void showEnvironment(NodeRef ref) {
-        EffectiveEnvironment env = definitions.previewEnvironment(ref.projectId(), ref.groupId(), ref.workflowId());
-        Label label = new Label("有效环境变量"); label.getStyleClass().add("section-title");
-        TableView<EnvRow> table = new TableView<>();
-        TableColumn<EnvRow, String> key = column("变量", row -> row.key);
-        TableColumn<EnvRow, String> value = column("最终值", row -> row.value);
-        TableColumn<EnvRow, String> source = column("来源", row -> row.source);
-        table.getColumns().addAll(key, value, source);
-        env.effective().forEach((k, v) -> table.getItems().add(new EnvRow(k,
-                env.sensitiveKeys().contains(k) ? "******" : String.valueOf(v), env.sources().get(k))));
-        table.setPrefHeight(Math.min(320, 32 + table.getItems().size() * 28));
-        details.getChildren().addAll(label, table);
+    @Override
+    public void runNode(NodeRef context) {
+        runSelected(context);
     }
 
-    private void addProject() {
-        EditorDialogs.nameDialog("新建项目", "新项目", "").ifPresent(value -> action(() ->
-                definitions.saveProject(null, value[0], value[1])));
-    }
-
-    private void addGroup() {
-        NodeRef ref = selected();
-        String projectId = ref == null ? null : ref.projectId();
-        if (projectId == null) { EditorDialogs.showError("请先选择项目"); return; }
-        EditorDialogs.nameDialog("新建组", "新组", "").ifPresent(value -> action(() ->
-                definitions.saveGroup(null, projectId, value[0], value[1], 0)));
-    }
-
-    private void addWorkflow() {
-        NodeRef ref = selected();
-        String groupId = ref == null ? null : ref.groupId();
-        if (groupId == null) { EditorDialogs.showError("请先选择组"); return; }
-        EditorDialogs.nameDialog("新建工作流", "新工作流", "").ifPresent(value -> action(() ->
-                definitions.saveWorkflow(null, groupId, value[0], value[1], 0)));
-    }
-
-    private void addStep() {
-        NodeRef ref = selected();
-        if (ref == null || ref.workflowId() == null) { EditorDialogs.showError("请先选择工作流"); return; }
-        EditorDialogs.stepDialog(ref.workflowId(), null, false).ifPresent(step -> action(() -> definitions.saveWorkflowStep(step)));
-    }
-
-    private void addHookStep() {
-        NodeRef ref = selected();
-        if (ref == null || (ref.groupId() == null && ref.workflowId() == null)) {
-            EditorDialogs.showError("请选择组或工作流"); return;
-        }
-        boolean workflow = ref.workflowId() != null;
-        Hook hook = definitions.getOrCreateHook(workflow ? OwnerType.WORKFLOW : OwnerType.GROUP,
-                workflow ? ref.workflowId() : ref.groupId(),
-                workflow ? HookType.BEFORE_WORKFLOW : HookType.BEFORE_GROUP);
-        EditorDialogs.stepDialog(hook.id(), null, true).ifPresent(step -> action(() -> definitions.saveHookStep(hook.id(), step)));
-    }
-
-    private void editVariables() {
-        NodeRef ref = selected();
-        if (ref == null || !(ref.type() == NodeType.PROJECT || ref.type() == NodeType.GROUP || ref.type() == NodeType.WORKFLOW)) {
-            EditorDialogs.showError("请选择项目、组或工作流"); return;
-        }
-        ScopeType type = switch (ref.type()) {
-            case PROJECT -> ScopeType.PROJECT;
-            case GROUP -> ScopeType.GROUP;
-            case WORKFLOW -> ScopeType.WORKFLOW;
-            default -> throw new IllegalStateException();
-        };
-        String scopeId = ref.id();
-        EditorDialogs.manageVariables(type, scopeId, definitions, objectMapper);
-        refreshTree();
-    }
-
-    private void addDataSource() {
-        NodeRef ref = selected();
-        if (ref == null || ref.projectId() == null) { EditorDialogs.showError("请选择项目或其子节点"); return; }
-        EditorDialogs.manageDataSources(ref.projectId(), definitions);
-        refreshTree();
-    }
-
-    private void editSelected() {
-        NodeRef ref = selected();
-        if (ref == null) return;
-        if (ref.value() instanceof Project p) EditorDialogs.nameDialog("编辑项目", p.name(), p.description())
-                .ifPresent(v -> action(() -> definitions.saveProject(p.id(), v[0], v[1])));
-        else if (ref.value() instanceof Group g) EditorDialogs.nameDialog("编辑组", g.name(), g.description())
-                .ifPresent(v -> action(() -> definitions.saveGroup(g.id(), g.projectId(), v[0], v[1], g.sortOrder())));
-        else if (ref.value() instanceof Workflow w) EditorDialogs.nameDialog("编辑工作流", w.name(), w.description())
-                .ifPresent(v -> action(() -> definitions.saveWorkflow(w.id(), w.groupId(), v[0], v[1], w.sortOrder())));
-        else if (ref.value() instanceof Step step) EditorDialogs.stepDialog(step.ownerId(), step, step.hookStep())
-                .ifPresent(v -> action(() -> step.hookStep()
-                        ? definitions.saveHookStep(step.ownerId(), v) : definitions.saveWorkflowStep(v)));
-    }
-
-    private void deleteSelected() {
-        NodeRef ref = selected();
-        if (ref == null || ref.type() == NodeType.ROOT || !EditorDialogs.confirm("确认删除“" + ref.name() + "”？")) return;
-        action(() -> {
-            switch (ref.type()) {
-                case PROJECT -> definitions.deleteProject(ref.id());
-                case GROUP -> definitions.deleteGroup(ref.id());
-                case WORKFLOW -> definitions.deleteWorkflow(ref.id());
-                case STEP -> definitions.deleteStep(ref.id(), false);
-                case HOOK_STEP -> definitions.deleteStep(ref.id(), true);
-                default -> { }
+    @Override
+    public void moveNode(NodeRef context, int delta) {
+        try {
+            switch (context.type()) {
+                case GROUP -> workflowGroups.move(context.id(), delta);
+                case WORKFLOW -> workflowDefinitions.move(context.id(), delta);
+                case STEP, HOOK_STEP -> {
+                    Step step = (Step) context.value();
+                    stepDefinitions.move(context.id(), step.hookStep(), delta);
+                }
+                default -> throw new IllegalArgumentException("当前节点不可排序");
             }
-            return null;
-        });
+            refreshTree();
+        } catch (Exception e) { fail(e); }
     }
 
-    private void runSelected() {
-        NodeRef ref = selected();
+    @Override
+    public void deleteNode(NodeRef context) {
+        if (!EditorDialogs.confirm("确认删除「" + context.name() + "」？")) return;
+        try {
+            switch (context.type()) {
+                case PROJECT -> projectService.delete(context.id());
+                case GROUP -> workflowGroups.delete(context.id());
+                case WORKFLOW -> workflowDefinitions.delete(context.id());
+                case STEP -> stepDefinitions.delete(context.id(), false);
+                case HOOK_STEP -> stepDefinitions.delete(context.id(), true);
+                default -> throw new IllegalArgumentException("当前节点不可删除");
+            }
+            detailTab.showEmpty();
+            refreshTree();
+            status.setText("已删除");
+        } catch (Exception e) { fail(e); }
+    }
+
+    @Override
+    public void openEditTab() {
+        TreeItem<NodeRef> item = tree.getSelectionModel().getSelectedItem();
+        if (item != null && item.getValue() != null && item.getValue().type() == NodeType.PROJECT) {
+            detailTab.showProjectDetail(toSelection(item), editorActions());
+        }
+        showCenterView(CenterView.PROJECT);
+    }
+
+    @Override
+    public void stopExecution() {
+        if (activeExecution != null) {
+            executionControl.cancel(activeExecution.executionId());
+            status.setText("正在停止...");
+        }
+    }
+
+    private void runSelected(NodeRef ref) {
         if (ref == null) return;
-        executionLog.clear();
-        if (ref.workflowId() != null) activeExecution = executions.submitWorkflow(
-                new WorkflowExecutionCommand(ref.workflowId(), Map.of()), this::onEvent);
-        else if (ref.groupId() != null) activeExecution = executions.submitGroup(
-                new GroupExecutionCommand(ref.groupId(), Map.of()), this::onEvent);
-        else { EditorDialogs.showError("请选择组或工作流"); return; }
+        ExecutionListener listener = event -> { };
+        if (ref.type() == NodeType.PROJECT) activeExecution = projectExecutions.submit(
+                new ProjectExecutionCommand(ref.id(), Map.of()), listener);
+        else if (ref.type() == NodeType.WORKFLOW) activeExecution = workflowRuns.submit(
+                new WorkflowExecutionCommand(ref.id(), Map.of()), listener);
+        else if (ref.type() == NodeType.GROUP) activeExecution = groupExecutions.submit(
+                new GroupExecutionCommand(ref.id(), Map.of()), listener);
+        else if (ref.workflowId() != null) activeExecution = workflowRuns.submit(
+                new WorkflowExecutionCommand(ref.workflowId(), Map.of()), listener);
+        else if (ref.groupId() != null) activeExecution = groupExecutions.submit(
+                new GroupExecutionCommand(ref.groupId(), Map.of()), listener);
+        else { EditorDialogs.showError("请选择项目、组或工作流"); return; }
         status.setText("执行中：" + ref.name());
         activeExecution.future().whenComplete((result, error) -> Platform.runLater(() -> {
-            if (error != null) { append("执行异常：" + error.getMessage()); status.setText("执行异常"); }
-            else { append("完成：" + result.status() + "，耗时 " + result.elapsedMs() + "ms"); status.setText("执行完成：" + result.status()); }
-            refreshHistory(); activeExecution = null;
+            if (error != null) status.setText("执行异常：" + error.getMessage());
+            else status.setText("执行完成：" + result.status() + "，耗时 " + result.elapsedMs() + "ms");
+            refreshHistory();
+            activeExecution = null;
         }));
-    }
-
-    private void stopExecution() {
-        if (activeExecution != null) { executions.cancel(activeExecution.executionId()); status.setText("正在停止..."); }
-    }
-
-    private void onEvent(ExecutionEvent event) {
-        Platform.runLater(() -> append(event.time().format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS"))
-                + "  " + event.type() + "  " + nullSafe(event.code()) + "  " + nullSafe(event.message())));
     }
 
     private void configureHistoryTable() {
         historyTable.getColumns().addAll(
-                column("类型", ExecutionQueryService.ExecutionSummary::type),
-                column("目标", ExecutionQueryService.ExecutionSummary::targetName),
-                column("状态", ExecutionQueryService.ExecutionSummary::status),
+                column("类型", ExecutionSummary::type),
+                column("目标", ExecutionSummary::targetName),
+                column("状态", ExecutionSummary::status),
                 column("开始时间", e -> e.startedAt() == null ? "" : e.startedAt().toString()),
                 column("耗时(ms)", e -> String.valueOf(e.elapsedMs())),
                 column("错误", e -> nullSafe(e.errorMessage())));
         historyTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         historyTable.setRowFactory(table -> {
-            TableRow<ExecutionQueryService.ExecutionSummary> row = new TableRow<>();
+            TableRow<ExecutionSummary> row = new TableRow<>();
             row.setOnMouseClicked(event -> {
                 if (event.getClickCount() == 2 && !row.isEmpty()) showExecutionDetails(row.getItem());
             });
@@ -326,20 +603,8 @@ public class MainWindow {
         });
     }
 
-    private void showExecutionDetails(ExecutionQueryService.ExecutionSummary summary) {
-        EditorDialogs.executionDetails(summary, history.steps(summary.id()), objectMapper);
-    }
-
-    private void moveSelected(int delta) {
-        NodeRef ref = selected();
-        if (ref == null) return;
-        action(() -> {
-            if (ref.value() instanceof Group) definitions.moveGroup(ref.id(), delta);
-            else if (ref.value() instanceof Workflow) definitions.moveWorkflow(ref.id(), delta);
-            else if (ref.value() instanceof Step step) definitions.moveStep(ref.id(), step.hookStep(), delta);
-            else throw new IllegalArgumentException("请选择组、工作流或步骤进行排序");
-            return null;
-        });
+    private void showExecutionDetails(ExecutionSummary summary) {
+        EditorDialogs.executionDetails(summary, stepExecutions.listByExecution(summary.id()), objectMapper);
     }
 
     private void backup() {
@@ -355,7 +620,7 @@ public class MainWindow {
     }
 
     private void refreshHistory() {
-        try { historyTable.setItems(FXCollections.observableArrayList(history.recent(100))); }
+        try { historyTable.setItems(FXCollections.observableArrayList(executionHistory.recent(100))); }
         catch (Exception e) { fail(e); }
     }
 
@@ -365,24 +630,15 @@ public class MainWindow {
         return column;
     }
 
-    private Tab tab(String name, javafx.scene.Node content) { Tab tab = new Tab(name, content); tab.setClosable(false); return tab; }
-    private Button button(String text, Runnable action, boolean primary) {
-        Button button = new Button(text); button.setOnAction(e -> action.run());
-        if (primary) button.getStyleClass().add("primary"); return button;
-    }
     private NodeRef selected() { TreeItem<NodeRef> item = tree.getSelectionModel().getSelectedItem(); return item == null ? null : item.getValue(); }
-    private void action(Action action) { try { action.run(); refreshTree(); } catch (Exception e) { fail(e); } }
     private void fail(Throwable e) { status.setText("失败：" + e.getMessage()); EditorDialogs.showError(e.getMessage() == null ? e.toString() : e.getMessage()); }
-    private void append(String line) { executionLog.appendText(line + System.lineSeparator()); }
-    private TextArea readonly(String value) { TextArea a = new TextArea(value); a.setEditable(false); a.setPrefRowCount(20); return a; }
-    private String pretty(String json) { try { return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(objectMapper.readTree(json)); } catch (Exception e) { return json; } }
     private String nullSafe(String value) { return value == null ? "" : value; }
 
-    private enum NodeType { ROOT, PROJECT, GROUP, WORKFLOW, HOOK, STEP, HOOK_STEP }
-    private record NodeRef(NodeType type, String id, String name, String projectId,
-                           String groupId, String workflowId, Object value) {
+    enum NodeType { ROOT, PROJECT, GROUP, WORKFLOW, HOOK, STEP, HOOK_STEP }
+    record NodeRef(NodeType type, Long id, String name, Long projectId,
+                   Long groupId, Long workflowId, Object value) {
         @Override public String toString() { return name; }
     }
-    private record EnvRow(String key, String value, String source) {}
-    @FunctionalInterface private interface Action { Object run() throws Exception; }
+
+
 }

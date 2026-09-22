@@ -1,5 +1,7 @@
 package com.workflowtest.desktop;
 
+import com.workflowtest.desktop.ui.AppTheme;
+import com.workflowtest.desktop.ui.AppTheme;
 import com.workflowtest.desktop.ui.MainWindow;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -12,6 +14,10 @@ import org.springframework.context.ConfigurableApplicationContext;
 public class WorkflowTestApplication extends Application {
     private ConfigurableApplicationContext context;
 
+    public static void main(String[] args) {
+        launch(args);
+    }
+
     @Override
     public void init() {
         context = new SpringApplicationBuilder(DesktopConfiguration.class)
@@ -22,6 +28,7 @@ public class WorkflowTestApplication extends Application {
 
     @Override
     public void start(Stage stage) {
+        AppTheme.applyDefault();
         MainWindow mainWindow = context.getBean(MainWindow.class);
         Scene scene = new Scene(mainWindow.root(), 1380, 840);
         scene.getStylesheets().add(getClass().getResource("/styles/main.css").toExternalForm());

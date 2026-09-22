@@ -3,8 +3,9 @@ package com.workflowtest.desktop.ui;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflowtest.desktop.remote.ServerClient;
-import com.workflowtest.engine.api.ExecutionModels.*;
-import com.workflowtest.engine.api.WorkflowExecutionService;
+import com.workflowtest.engine.api.execution.ExecutionControlService;
+import com.workflowtest.engine.api.execution.ExecutionModels.*;
+import com.workflowtest.engine.api.execution.PackageExecutionService;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -24,7 +25,8 @@ import java.util.function.Supplier;
 @Component
 public class RemoteAssetWindow {
     private final ServerClient server;
-    private final WorkflowExecutionService executions;
+    private final PackageExecutionService packageExecutions;
+    private final ExecutionControlService executionControl;
     private final ObjectMapper json;
     private final TreeView<RemoteNode> tree = new TreeView<>();
     private final TextArea details = new TextArea();
@@ -33,8 +35,12 @@ public class RemoteAssetWindow {
     private Stage stage;
     private ExecutionHandle active;
 
-    public RemoteAssetWindow(ServerClient server, WorkflowExecutionService executions, ObjectMapper json) {
-        this.server = server; this.executions = executions; this.json = json;
+    public RemoteAssetWindow(ServerClient server, PackageExecutionService packageExecutions,
+                             ExecutionControlService executionControl, ObjectMapper json) {
+        this.server = server;
+        this.packageExecutions = packageExecutions;
+        this.executionControl = executionControl;
+        this.json = json;
     }
 
     public void show(Window owner) {
@@ -50,7 +56,7 @@ public class RemoteAssetWindow {
         HBox bottom = new HBox(status); bottom.setPadding(new Insets(6, 10, 6, 10)); root.setBottom(bottom);
         Scene scene = new Scene(root, 1280, 780);
         var css = getClass().getResource("/styles/main.css"); if (css != null) scene.getStylesheets().add(css.toExternalForm());
-        stage.setScene(scene); stage.setOnHidden(e -> { if (active != null) executions.cancel(active.executionId()); stage = null; }); stage.show();
+        stage.setScene(scene); stage.setOnHidden(e -> { if (active != null) executionControl.cancel(active.executionId()); stage = null; }); stage.show();
         login();
     }
 
@@ -154,7 +160,7 @@ public class RemoteAssetWindow {
             if (versions.isEmpty()) throw new IllegalStateException("工作流尚未发布");
             return server.executionPackage(versions.getFirst().path("id").asText());
         }, pack -> {
-            ExecutionHandle handle = executions.submitPackage(new PackageExecutionCommand(pack, Map.of()), this::event);
+            ExecutionHandle handle = packageExecutions.submit(new PackageExecutionCommand(pack, Map.of()), this::event);
             active = handle;
             status.setText("本地执行中：" + node.name());
             handle.future().whenComplete((result, throwable) -> Platform.runLater(() -> {
@@ -164,7 +170,7 @@ public class RemoteAssetWindow {
             }));
         });
     }
-    private void stop() { if (active != null) executions.cancel(active.executionId()); }
+    private void stop() { if (active != null) executionControl.cancel(active.executionId()); }
 
     private void manageUsers() {
         async(server::users, users -> {

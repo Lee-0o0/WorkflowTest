@@ -15,8 +15,6 @@ mybatis-plus:
     db-config:
       id-type: assign_uuid
 workflowtest:
-  server:
-    url: ${WORKFLOWTEST_SERVER_URL:http://localhost:8080}
   data-dir: ${LOCALAPPDATA:${user.home}/.workflowtest}/WorkflowTest/data
   global:
     connectTimeout: 5000

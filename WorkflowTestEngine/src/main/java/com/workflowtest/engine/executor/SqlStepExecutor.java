@@ -4,12 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.workflowtest.engine.api.DefinitionModels.StepType;
-import com.workflowtest.engine.persistence.entity.RuntimeDataSourceEntity;
+import com.workflowtest.engine.api.definition.DefinitionModels.StepType;
+
 import com.workflowtest.engine.runtime.ExecutionContext;
 import com.workflowtest.engine.runtime.RuntimeStep;
 import com.workflowtest.engine.runtime.StepExecutor;
 import com.workflowtest.engine.runtime.StepResult;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.sql.ResultSet;
@@ -20,30 +21,31 @@ import java.util.Locale;
 import java.util.Map;
 
 @Component
+@RequiredArgsConstructor
 public class SqlStepExecutor implements StepExecutor {
     private final RuntimeDataSourceManager dataSources;
     private final ObjectMapper objectMapper;
-
-    public SqlStepExecutor(RuntimeDataSourceManager dataSources, ObjectMapper objectMapper) {
-        this.dataSources = dataSources; this.objectMapper = objectMapper;
-    }
     @Override public StepType supports() { return StepType.SQL; }
 
     @Override
     public StepResult execute(RuntimeStep step, JsonNode config, ExecutionContext context) throws Exception {
         long started = System.nanoTime();
-        String dataSourceId = config.path("datasourceId").asText();
+        var datasourceNode = config.path("datasourceId");
+        if (datasourceNode.isMissingNode() || datasourceNode.isNull()) {
+            throw new IllegalArgumentException("SQL 数据源和语句不能为空");
+        }
+        Long dataSourceId = datasourceNode.isNumber() ? datasourceNode.asLong() : Long.parseLong(datasourceNode.asText());
         String operation = config.path("operation").asText("QUERY").toUpperCase(Locale.ROOT);
         String sql = config.path("sql").asText();
-        if (dataSourceId.isBlank() || sql.isBlank()) throw new IllegalArgumentException("SQL 数据源和语句不能为空");
-        RuntimeDataSourceEntity definition = dataSources.definition(dataSourceId);
-        rejectDangerous(sql, Boolean.TRUE.equals(definition.getAllowDangerousSql()));
+        if (dataSourceId <= 0 || sql.isBlank()) throw new IllegalArgumentException("SQL 数据源和语句不能为空");
+        DatasourceRuntimeDefinition definition = dataSources.definition(dataSourceId);
+        rejectDangerous(sql, definition.allowDangerousSql());
         Map<String, Object> params = config.has("parameters")
                 ? objectMapper.convertValue(config.get("parameters"), Map.class) : Map.of();
         NamedSql.Parsed parsed = NamedSql.parse(sql, params);
         ObjectNode output = objectMapper.createObjectNode();
         ObjectNode request = objectMapper.createObjectNode();
-        request.put("datasourceId", dataSourceId); request.put("operation", operation); request.put("sql", sql);
+        request.put("datasourceId", String.valueOf(dataSourceId)); request.put("operation", operation); request.put("sql", sql);
         request.set("parameters", objectMapper.valueToTree(params));
         try (var connection = dataSources.get(dataSourceId).getConnection();
              var statement = connection.prepareStatement(parsed.sql())) {

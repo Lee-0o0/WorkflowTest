@@ -15,7 +15,7 @@ mybatis-plus:
   global-config:
     banner: false
     db-config:
-      id-type: assign_uuid
+      id-type: auto
 workflowtest:
   data-dir: ${user.home}/.workflowtest/data
   global:
