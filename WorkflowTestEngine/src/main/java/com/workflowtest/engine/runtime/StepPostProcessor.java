@@ -3,6 +3,7 @@ package com.workflowtest.engine.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import com.workflowtest.engine.support.EngineMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -15,6 +16,52 @@ import java.util.regex.Pattern;
 @Component
 @RequiredArgsConstructor
 public class StepPostProcessor {
+    private static final class Field {
+        static final String TARGET = "target";
+        static final String SOURCE = "source";
+        static final String EXPRESSION = "expression";
+        static final String OPERATOR = "operator";
+        static final String EXPECTED = "expected";
+        static final String REQUIRED = "required";
+        static final String DEFAULT_VALUE = "defaultValue";
+        static final String DEFAULT_SOURCE = Source.OUTPUT;
+        static final String DEFAULT_OPERATOR = Operator.EQUALS;
+    }
+
+    private static final class Source {
+        static final String OUTPUT = "OUTPUT";
+        static final String RESPONSE_BODY = "RESPONSE_BODY";
+        static final String RESPONSE_HEADER = "RESPONSE_HEADER";
+        static final String STATUS_CODE = "STATUS_CODE";
+        static final String SQL_ROWS = "SQL_ROWS";
+        static final String UPDATE_COUNT = "UPDATE_COUNT";
+    }
+
+    private static final class JsonPathExpr {
+        static final String RESPONSE_BODY = "$.response.body";
+        static final String RESPONSE_HEADERS = "$.response.headers";
+        static final String RESPONSE_STATUS = "$.response.status";
+        static final String SQL_ROWS = "$.rows";
+        static final String UPDATE_COUNT = "$.updateCount";
+    }
+
+    private static final class Operator {
+        static final String EQUALS = "EQUALS";
+        static final String NOT_EQUALS = "NOT_EQUALS";
+        static final String CONTAINS = "CONTAINS";
+        static final String NOT_CONTAINS = "NOT_CONTAINS";
+        static final String EXISTS = "EXISTS";
+        static final String NOT_NULL = "NOT_NULL";
+        static final String NOT_EXISTS = "NOT_EXISTS";
+        static final String IS_NULL = "IS_NULL";
+        static final String GREATER_THAN = "GREATER_THAN";
+        static final String GREATER_THAN_OR_EQUAL = "GREATER_THAN_OR_EQUAL";
+        static final String LESS_THAN = "LESS_THAN";
+        static final String LESS_THAN_OR_EQUAL = "LESS_THAN_OR_EQUAL";
+        static final String MATCHES_REGEX = "MATCHES_REGEX";
+        static final String SIZE_EQUALS = "SIZE_EQUALS";
+    }
+
     private final ObjectMapper objectMapper;
 
     public JsonNode extract(JsonNode definitions, StepResult result, ExecutionContext context, boolean groupScope) {
@@ -22,13 +69,16 @@ public class StepPostProcessor {
         if (definitions == null || !definitions.isArray()) return extracted;
         Object document = objectMapper.convertValue(result.output(), Object.class);
         for (JsonNode definition : definitions) {
-            String target = definition.path("target").asText();
-            Object root = source(document, definition.path("source").asText("OUTPUT"));
-            String expression = definition.path("expression").asText();
+            String target = definition.path(Field.TARGET).asText();
+            Object root = source(document, definition.path(Field.SOURCE).asText(Field.DEFAULT_SOURCE));
+            String expression = definition.path(Field.EXPRESSION).asText();
             Object value = expression.isBlank() ? root : read(root, expression);
-            if (value == null && definition.path("required").asBoolean(false))
-                throw new AssertionError("必需提取值不存在: " + target);
-            if (value == null && definition.has("defaultValue")) value = objectMapper.convertValue(definition.get("defaultValue"), Object.class);
+            if (value == null && definition.path(Field.REQUIRED).asBoolean(false)) {
+                throw new AssertionError(String.format(EngineMessages.REQUIRED_EXTRACTION_MISSING, target));
+            }
+            if (value == null && definition.has(Field.DEFAULT_VALUE)) {
+                value = objectMapper.convertValue(definition.get(Field.DEFAULT_VALUE), Object.class);
+            }
             context.putVariable(target, value, groupScope);
             extracted.set(extractKey(target), objectMapper.valueToTree(value));
         }
@@ -41,11 +91,11 @@ public class StepPostProcessor {
         Object document = objectMapper.convertValue(result.output(), Object.class);
         List<String> failures = new ArrayList<>();
         for (JsonNode definition : definitions) {
-            Object root = source(document, definition.path("source").asText("OUTPUT"));
-            String expression = definition.path("expression").asText();
+            Object root = source(document, definition.path(Field.SOURCE).asText(Field.DEFAULT_SOURCE));
+            String expression = definition.path(Field.EXPRESSION).asText();
             Object actual = expression.isBlank() ? root : read(root, expression);
-            Object expected = definition.has("expected") ? objectMapper.convertValue(definition.get("expected"), Object.class) : null;
-            String operator = definition.path("operator").asText("EQUALS");
+            Object expected = definition.has(Field.EXPECTED) ? objectMapper.convertValue(definition.get(Field.EXPECTED), Object.class) : null;
+            String operator = definition.path(Field.OPERATOR).asText(Field.DEFAULT_OPERATOR);
             boolean passed = compare(operator, actual, expected);
             var item = objectMapper.createObjectNode();
             item.put("passed", passed); item.put("operator", operator); item.put("expression", expression);
@@ -58,18 +108,22 @@ public class StepPostProcessor {
     }
 
     private String extractKey(String target) {
-        if (target.startsWith("group.")) return target.substring(6);
-        if (target.startsWith("workflow.")) return target.substring(9);
+        if (target.startsWith(ExecutionContext.VariableScope.GROUP)) {
+            return target.substring(ExecutionContext.VariableScope.GROUP.length());
+        }
+        if (target.startsWith(ExecutionContext.VariableScope.WORKFLOW)) {
+            return target.substring(ExecutionContext.VariableScope.WORKFLOW.length());
+        }
         return target;
     }
 
     private Object source(Object document, String source) {
         return switch (source) {
-            case "RESPONSE_BODY" -> read(document, "$.response.body");
-            case "RESPONSE_HEADER" -> read(document, "$.response.headers");
-            case "STATUS_CODE" -> read(document, "$.response.status");
-            case "SQL_ROWS" -> read(document, "$.rows");
-            case "UPDATE_COUNT" -> read(document, "$.updateCount");
+            case Source.RESPONSE_BODY -> read(document, JsonPathExpr.RESPONSE_BODY);
+            case Source.RESPONSE_HEADER -> read(document, JsonPathExpr.RESPONSE_HEADERS);
+            case Source.STATUS_CODE -> read(document, JsonPathExpr.RESPONSE_STATUS);
+            case Source.SQL_ROWS -> read(document, JsonPathExpr.SQL_ROWS);
+            case Source.UPDATE_COUNT -> read(document, JsonPathExpr.UPDATE_COUNT);
             default -> document;
         };
     }
@@ -81,19 +135,19 @@ public class StepPostProcessor {
 
     private boolean compare(String operator, Object actual, Object expected) {
         return switch (operator) {
-            case "EQUALS" -> Objects.equals(normalize(actual), normalize(expected));
-            case "NOT_EQUALS" -> !Objects.equals(normalize(actual), normalize(expected));
-            case "CONTAINS" -> actual != null && String.valueOf(actual).contains(String.valueOf(expected));
-            case "NOT_CONTAINS" -> actual == null || !String.valueOf(actual).contains(String.valueOf(expected));
-            case "EXISTS", "NOT_NULL" -> actual != null;
-            case "NOT_EXISTS", "IS_NULL" -> actual == null;
-            case "GREATER_THAN" -> number(actual).compareTo(number(expected)) > 0;
-            case "GREATER_THAN_OR_EQUAL" -> number(actual).compareTo(number(expected)) >= 0;
-            case "LESS_THAN" -> number(actual).compareTo(number(expected)) < 0;
-            case "LESS_THAN_OR_EQUAL" -> number(actual).compareTo(number(expected)) <= 0;
-            case "MATCHES_REGEX" -> actual != null && Pattern.matches(String.valueOf(expected), String.valueOf(actual));
-            case "SIZE_EQUALS" -> size(actual) == number(expected).intValue();
-            default -> throw new IllegalArgumentException("不支持的断言操作符: " + operator);
+            case Operator.EQUALS -> Objects.equals(normalize(actual), normalize(expected));
+            case Operator.NOT_EQUALS -> !Objects.equals(normalize(actual), normalize(expected));
+            case Operator.CONTAINS -> actual != null && String.valueOf(actual).contains(String.valueOf(expected));
+            case Operator.NOT_CONTAINS -> actual == null || !String.valueOf(actual).contains(String.valueOf(expected));
+            case Operator.EXISTS, Operator.NOT_NULL -> actual != null;
+            case Operator.NOT_EXISTS, Operator.IS_NULL -> actual == null;
+            case Operator.GREATER_THAN -> number(actual).compareTo(number(expected)) > 0;
+            case Operator.GREATER_THAN_OR_EQUAL -> number(actual).compareTo(number(expected)) >= 0;
+            case Operator.LESS_THAN -> number(actual).compareTo(number(expected)) < 0;
+            case Operator.LESS_THAN_OR_EQUAL -> number(actual).compareTo(number(expected)) <= 0;
+            case Operator.MATCHES_REGEX -> actual != null && Pattern.matches(String.valueOf(expected), String.valueOf(actual));
+            case Operator.SIZE_EQUALS -> size(actual) == number(expected).intValue();
+            default -> throw new IllegalArgumentException(String.format(EngineMessages.ASSERT_OPERATOR_UNSUPPORTED, operator));
         };
     }
 

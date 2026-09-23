@@ -26,10 +26,6 @@ public final class DefinitionModels {
                        boolean enabled, List<Step> steps) {}
     public record ProjectResource(Long id, Long projectId, ProjectResourceType type, String name,
                                   Map<String, Object> config, boolean enabled) {}
-    public record ProjectTree(List<ProjectNode> projects) {}
-    public record ProjectNode(Project project, List<GroupNode> groups) {}
-    public record GroupNode(Group group, List<WorkflowNode> workflows) {}
-    public record WorkflowNode(Workflow workflow, List<Step> steps) {}
     public record EffectiveEnvironment(Map<String, Object> global,
                                        Map<String, Object> project,
                                        Map<String, Object> group,

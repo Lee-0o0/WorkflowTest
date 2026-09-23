@@ -1,4 +1,4 @@
-package com.workflowtest.engine.executor;
+package com.workflowtest.engine.executor.support;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,7 +6,6 @@ import com.workflowtest.engine.api.definition.DefinitionModels.ProjectResourceTy
 import com.workflowtest.engine.persistence.entity.ProjectResourceEntity;
 import com.workflowtest.engine.persistence.mapper.ProjectResourceMapper;
 import com.workflowtest.engine.security.SecretCipher;
-import com.workflowtest.engine.support.JdbcConnectionConfig;
 import com.workflowtest.engine.support.JdbcConnectionConfig;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;

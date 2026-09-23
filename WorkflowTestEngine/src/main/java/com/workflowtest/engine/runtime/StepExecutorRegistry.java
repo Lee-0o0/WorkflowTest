@@ -1,6 +1,7 @@
 package com.workflowtest.engine.runtime;
 
 import com.workflowtest.engine.api.definition.DefinitionModels.StepType;
+import com.workflowtest.engine.executor.StepExecutor;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumMap;
@@ -17,7 +18,9 @@ public class StepExecutorRegistry {
 
     public StepExecutor get(StepType type) {
         StepExecutor executor = executors.get(type);
-        if (executor == null) throw new IllegalArgumentException("不支持的步骤类型: " + type);
+        if (executor == null) {
+            throw new IllegalArgumentException("不支持的步骤类型: " + type);
+        }
         return executor;
     }
 }

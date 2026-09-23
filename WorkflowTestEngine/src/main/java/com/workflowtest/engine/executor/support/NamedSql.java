@@ -1,4 +1,4 @@
-package com.workflowtest.engine.executor;
+package com.workflowtest.engine.executor.support;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -6,11 +6,11 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class NamedSql {
+public final class NamedSql {
     private static final Pattern PARAM = Pattern.compile("(?<!:):([A-Za-z][A-Za-z0-9_]*)");
     private NamedSql() {}
 
-    static Parsed parse(String sql, Map<String, Object> parameters) {
+    public static Parsed parse(String sql, Map<String, Object> parameters) {
         Matcher matcher = PARAM.matcher(sql);
         StringBuffer jdbcSql = new StringBuffer();
         List<Object> values = new ArrayList<>();
@@ -24,5 +24,5 @@ final class NamedSql {
         return new Parsed(jdbcSql.toString(), values);
     }
 
-    record Parsed(String sql, List<Object> values) {}
+    public record Parsed(String sql, List<Object> values) {}
 }

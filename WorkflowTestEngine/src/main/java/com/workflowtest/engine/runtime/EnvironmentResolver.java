@@ -8,6 +8,7 @@ import com.workflowtest.engine.persistence.entity.GlobalVariableEntity;
 import com.workflowtest.engine.persistence.entity.ScopeVariableEntity;
 import com.workflowtest.engine.persistence.mapper.GlobalVariableMapper;
 import com.workflowtest.engine.persistence.mapper.ScopeVariableMapper;
+import com.workflowtest.engine.support.EngineMessages;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.PropertySource;
@@ -19,7 +20,18 @@ import java.util.Map;
 
 @Component
 public class EnvironmentResolver {
-    private static final String PREFIX = "workflowtest.global.";
+    /** application.yml 全局变量配置前缀 */
+    public static final String GLOBAL_CONFIG_PREFIX = "workflowtest.global.";
+
+    /** 环境变量来源标识 */
+    public static final class Source {
+        public static final String GLOBAL = "GLOBAL";
+        public static final String PROJECT = "PROJECT";
+        public static final String GROUP = "GROUP";
+        public static final String WORKFLOW = "WORKFLOW";
+
+        private Source() {}
+    }
 
     private final ConfigurableEnvironment environment;
     private final GlobalVariableMapper globalVariableMapper;
@@ -43,10 +55,10 @@ public class EnvironmentResolver {
         Map<String, Object> workflow = scoped(ScopeType.WORKFLOW, workflowId);
         Map<String, Object> effective = new LinkedHashMap<>();
         Map<String, String> sources = new LinkedHashMap<>();
-        merge(effective, sources, global, "GLOBAL");
-        merge(effective, sources, project, "PROJECT");
-        merge(effective, sources, group, "GROUP");
-        merge(effective, sources, workflow, "WORKFLOW");
+        merge(effective, sources, global, Source.GLOBAL);
+        merge(effective, sources, project, Source.PROJECT);
+        merge(effective, sources, group, Source.GROUP);
+        merge(effective, sources, workflow, Source.WORKFLOW);
         return new EffectiveEnvironment(Map.copyOf(global), Map.copyOf(project), Map.copyOf(group),
                 Map.copyOf(workflow), Map.copyOf(effective), Map.copyOf(sources));
     }
@@ -56,8 +68,8 @@ public class EnvironmentResolver {
         for (PropertySource<?> source : environment.getPropertySources()) {
             if (source instanceof EnumerablePropertySource<?> enumerable) {
                 for (String name : enumerable.getPropertyNames()) {
-                    if (name.startsWith(PREFIX)) {
-                        values.putIfAbsent(name.substring(PREFIX.length()), environment.getProperty(name));
+                    if (name.startsWith(GLOBAL_CONFIG_PREFIX)) {
+                        values.putIfAbsent(name.substring(GLOBAL_CONFIG_PREFIX.length()), environment.getProperty(name));
                     }
                 }
             }
@@ -88,7 +100,7 @@ public class EnvironmentResolver {
         try {
             return objectMapper.readValue(valueJson, Object.class);
         } catch (Exception e) {
-            throw new IllegalArgumentException("环境变量格式无效: " + variableKey, e);
+            throw new IllegalArgumentException(String.format(EngineMessages.ENV_VARIABLE_INVALID, variableKey), e);
         }
     }
 

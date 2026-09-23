@@ -526,7 +526,7 @@ final class EditorDialogs {
     private static String defaultConfig(StepType type) {
         if (type == null) return "{}";
         return switch (type) {
-            case HTTP -> "{\n  \"method\": \"GET\",\n  \"url\": \"${workflow.baseUrl}/health\",\n  \"headers\": {},\n  \"readTimeoutMs\": 10000\n}";
+            case HTTP -> "{\n  \"method\": \"GET\",\n  \"url\": \"${workflow.baseUrl}/health\",\n  \"headers\": {}\n}";
             case SQL -> "{\n  \"datasourceId\": \"\",\n  \"operation\": \"QUERY\",\n  \"sql\": \"SELECT 1 AS value\",\n  \"parameters\": {}\n}";
             case DELAY -> "{\n  \"millis\": 1000\n}";
         };

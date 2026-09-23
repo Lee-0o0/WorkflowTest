@@ -2,9 +2,11 @@ package com.workflowtest.desktop.ui;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workflowtest.desktop.execution.ExecutionEventSink;
 import com.workflowtest.desktop.remote.ServerClient;
 import com.workflowtest.engine.api.execution.ExecutionControlService;
 import com.workflowtest.engine.api.execution.ExecutionModels.*;
+import com.workflowtest.engine.api.execution.listener.ExecutionEvent;
 import com.workflowtest.engine.api.execution.PackageExecutionService;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -27,6 +29,7 @@ public class RemoteAssetWindow {
     private final ServerClient server;
     private final PackageExecutionService packageExecutions;
     private final ExecutionControlService executionControl;
+    private final ExecutionEventSink executionEventSink;
     private final ObjectMapper json;
     private final TreeView<RemoteNode> tree = new TreeView<>();
     private final TextArea details = new TextArea();
@@ -36,10 +39,12 @@ public class RemoteAssetWindow {
     private ExecutionHandle active;
 
     public RemoteAssetWindow(ServerClient server, PackageExecutionService packageExecutions,
-                             ExecutionControlService executionControl, ObjectMapper json) {
+                             ExecutionControlService executionControl, ExecutionEventSink executionEventSink,
+                             ObjectMapper json) {
         this.server = server;
         this.packageExecutions = packageExecutions;
         this.executionControl = executionControl;
+        this.executionEventSink = executionEventSink;
         this.json = json;
     }
 
@@ -160,10 +165,12 @@ public class RemoteAssetWindow {
             if (versions.isEmpty()) throw new IllegalStateException("工作流尚未发布");
             return server.executionPackage(versions.getFirst().path("id").asText());
         }, pack -> {
-            ExecutionHandle handle = packageExecutions.submit(new PackageExecutionCommand(pack, Map.of()), this::event);
+            ExecutionEventSink.Subscription subscription = executionEventSink.subscribe(this::event);
+            ExecutionHandle handle = packageExecutions.submit(new PackageExecutionCommand(pack, Map.of()));
             active = handle;
             status.setText("本地执行中：" + node.name());
             handle.future().whenComplete((result, throwable) -> Platform.runLater(() -> {
+                subscription.close();
                 if (throwable != null) { append("执行异常：" + throwable.getMessage()); status.setText("执行异常"); }
                 else { append("完成：" + result.status() + "，耗时 " + result.elapsedMs() + "ms"); status.setText("执行完成：" + result.status()); }
                 if (active == handle) active = null;

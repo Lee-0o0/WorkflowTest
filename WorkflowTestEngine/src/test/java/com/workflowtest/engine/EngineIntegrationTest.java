@@ -12,6 +12,7 @@ import com.workflowtest.engine.executor.HttpStepExecutor;
 import com.workflowtest.engine.executor.SqlStepExecutor;
 import com.workflowtest.engine.runtime.ExecutionContext;
 import com.workflowtest.engine.runtime.RuntimeStep;
+import com.workflowtest.engine.support.FactoryRegisteredExecutionListener;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +60,7 @@ class EngineIntegrationTest extends BasicTestApplication {
 
     @Test
     void hierarchyVariablesHooksAndGroupExecutionWorkTogether() throws Exception {
+        FactoryRegisteredExecutionListener.reset();
         Project project = projectService.save(null, "订单项目", "integration");
         Group group = workflowGroups.save(null, project.id(), "主流程", "", 1);
         Workflow workflow = workflowDefinitions.save(null, group.id(), "支付流程", "", 1);
@@ -75,31 +77,27 @@ class EngineIntegrationTest extends BasicTestApplication {
         stepDefinitions.saveHookStep(afterGroupHook.id(), delayStep(afterGroupHook.id(), "groupTeardown", 1, true));
         stepDefinitions.saveWorkflowStep(delayStep(workflow.id(), "run", 1, false));
 
-        var result = groupExecutions.submit(new GroupExecutionCommand(group.id(), Map.of("seed", 1)), event -> {})
+        var result = groupExecutions.submit(new GroupExecutionCommand(group.id(), Map.of("seed", 1)))
                 .future().get(10, TimeUnit.SECONDS);
         assertThat(result.status()).isEqualTo(Status.PASSED);
+        assertThat(FactoryRegisteredExecutionListener.EVENT_COUNT.get()).isGreaterThan(0);
 
-        var projectResult = projectExecutions.submit(new ProjectExecutionCommand(project.id(), Map.of()), event -> {})
+        var projectResult = projectExecutions.submit(new ProjectExecutionCommand(project.id(), Map.of()))
                 .future().get(30, TimeUnit.SECONDS);
         assertThat(projectResult.status()).isEqualTo(Status.PASSED);
         assertThat(stepExecutions.listByExecution(result.executionId())).extracting(StepExecutionDetail::phase)
                 .contains("BEFORE_GROUP", "WORKFLOW", "AFTER_GROUP");
-        assertThat(projectTree.loadTree().projects()).hasSize(1);
+        assertThat(projectTree.listProjects()).extracting(Project::id).contains(project.id());
 
         Group secondGroup = workflowGroups.save(null, project.id(), "次要流程", "", 2);
         workflowGroups.move(secondGroup.id(), -1);
-        assertThat(projectTree.loadTree().projects().getFirst().groups().getFirst().group().id()).isEqualTo(secondGroup.id());
+        assertThat(projectTree.listGroups(project.id()).getFirst().id()).isEqualTo(secondGroup.id());
         Workflow secondWorkflow = workflowDefinitions.save(null, group.id(), "退款流程", "", 2);
         workflowDefinitions.move(secondWorkflow.id(), -1);
-        var reorderedGroup = projectTree.loadTree().projects().getFirst().groups().stream()
-                .filter(node -> node.group().id().equals(group.id())).findFirst().orElseThrow();
-        assertThat(reorderedGroup.workflows().getFirst().workflow().id()).isEqualTo(secondWorkflow.id());
+        assertThat(projectTree.listWorkflows(group.id()).getFirst().id()).isEqualTo(secondWorkflow.id());
         Step secondStep = stepDefinitions.saveWorkflowStep(delayStep(workflow.id(), "finish", 2, false));
         stepDefinitions.move(secondStep.id(), false, -1);
-        var reorderedWorkflow = projectTree.loadTree().projects().getFirst().groups().stream()
-                .flatMap(node -> node.workflows().stream()).filter(node -> node.workflow().id().equals(workflow.id()))
-                .findFirst().orElseThrow();
-        assertThat(reorderedWorkflow.steps().getFirst().id()).isEqualTo(secondStep.id());
+        assertThat(projectTree.listWorkflowSteps(workflow.id()).getFirst().id()).isEqualTo(secondStep.id());
 
         scopedVariables.save(new ScopedVariable(null, ScopeType.WORKFLOW, workflow.id(),
                 "token", "AUTO", "secret-value", true));
@@ -135,7 +133,8 @@ class EngineIntegrationTest extends BasicTestApplication {
         Path runtimeDb = DATA_DIR.resolve("runtime.db");
         try (var connection = DriverManager.getConnection("jdbc:sqlite:" + runtimeDb);
              var statement = connection.createStatement()) {
-            statement.execute("CREATE TABLE sample(id INTEGER PRIMARY KEY, name TEXT)");
+            statement.execute("CREATE TABLE IF NOT EXISTS sample(id INTEGER PRIMARY KEY, name TEXT)");
+            statement.execute("DELETE FROM sample");
             statement.execute("INSERT INTO sample(id,name) VALUES (1,'first')");
         }
         Map<String, Object> datasourceConfig = Map.of(
@@ -161,7 +160,7 @@ class EngineIntegrationTest extends BasicTestApplication {
                 .digest(canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         var remotePackage = objectMapper.createObjectNode().put("workflowId", "remote-workflow").put("checksum", checksum);
         remotePackage.set("definition", remoteDefinition);
-        var remoteResult = packageExecutions.submit(new PackageExecutionCommand(remotePackage, Map.of()), event -> {})
+        var remoteResult = packageExecutions.submit(new PackageExecutionCommand(remotePackage, Map.of()))
                 .future().get(10, TimeUnit.SECONDS);
         assertThat(remoteResult.status()).isEqualTo(Status.PASSED);
     }
@@ -175,7 +174,7 @@ class EngineIntegrationTest extends BasicTestApplication {
         stepDefinitions.saveWorkflowStep(httpStep(failing.id(), "failHttp", 1, "http://127.0.0.1:1/unreachable"));
         stepDefinitions.saveWorkflowStep(delayStep(succeeding.id(), "okDelay", 1, false));
 
-        var result = groupExecutions.submit(new GroupExecutionCommand(group.id(), Map.of()), event -> {})
+        var result = groupExecutions.submit(new GroupExecutionCommand(group.id(), Map.of()))
                 .future().get(15, TimeUnit.SECONDS);
 
         assertThat(result.status()).isEqualTo(Status.FAILED);
@@ -194,7 +193,7 @@ class EngineIntegrationTest extends BasicTestApplication {
         stepDefinitions.saveWorkflowStep(httpStep(workflow.id(), "step2", 2, "http://127.0.0.1:1/unreachable"));
         stepDefinitions.saveWorkflowStep(delayStep(workflow.id(), "step3", 3, false));
 
-        var result = workflowRuns.submit(new WorkflowExecutionCommand(workflow.id(), Map.of()), event -> {})
+        var result = workflowRuns.submit(new WorkflowExecutionCommand(workflow.id(), Map.of()))
                 .future().get(15, TimeUnit.SECONDS);
 
         assertThat(result.status()).isEqualTo(Status.FAILED);

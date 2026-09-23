@@ -41,6 +41,6 @@ class EngineMinimalTest extends BasicTestApplication {
             assertThat(connection.isValid(2)).isTrue();
             assertThat(connection.getMetaData().getTables(null, null, "ts_project", null).next()).isTrue();
         }
-        assertThat(projectTree.loadTree().projects()).isEmpty();
+        assertThat(projectTree.listProjects()).isEmpty();
     }
 }

@@ -65,8 +65,7 @@ final class EditorForms {
                     {
                       "method": "GET",
                       "url": "${project.baseUrl}/health",
-                      "headers": {},
-                      "readTimeoutMs": 10000
+                      "headers": {}
                     }""";
             case SQL -> """
                     {

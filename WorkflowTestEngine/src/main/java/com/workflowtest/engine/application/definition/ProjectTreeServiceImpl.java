@@ -23,29 +23,29 @@ public class ProjectTreeServiceImpl implements ProjectTreeService {
     private final DefinitionPersistenceSupport support;
 
     @Override
-    public ProjectTree loadTree() {
-        List<ProjectNode> projects = projectMapper.selectList(
-                        Wrappers.<ProjectEntity>lambdaQuery().orderByAsc(ProjectEntity::getName))
-                .stream().map(project -> new ProjectNode(support.toProject(project), groups(project.getId()))).toList();
-        return new ProjectTree(projects);
+    public List<Project> listProjects() {
+        return projectMapper.selectList(Wrappers.<ProjectEntity>lambdaQuery().orderByAsc(ProjectEntity::getName))
+                .stream().map(support::toProject).toList();
     }
 
-    private List<GroupNode> groups(Long projectId) {
+    @Override
+    public List<Group> listGroups(Long projectId) {
         return groupMapper.selectList(Wrappers.<WorkflowGroupEntity>lambdaQuery()
                         .eq(WorkflowGroupEntity::getProjectId, projectId)
                         .orderByAsc(WorkflowGroupEntity::getSortOrder, WorkflowGroupEntity::getName))
-                .stream().map(group -> new GroupNode(support.toGroup(group), workflows(group.getId()))).toList();
+                .stream().map(support::toGroup).toList();
     }
 
-    private List<WorkflowNode> workflows(Long groupId) {
+    @Override
+    public List<Workflow> listWorkflows(Long groupId) {
         return workflowMapper.selectList(Wrappers.<WorkflowEntity>lambdaQuery()
                         .eq(WorkflowEntity::getGroupId, groupId)
                         .orderByAsc(WorkflowEntity::getSortOrder, WorkflowEntity::getName))
-                .stream().map(workflow -> new WorkflowNode(support.toWorkflow(workflow), workflowSteps(workflow.getId())))
-                .toList();
+                .stream().map(support::toWorkflow).toList();
     }
 
-    private List<Step> workflowSteps(Long workflowId) {
+    @Override
+    public List<Step> listWorkflowSteps(Long workflowId) {
         return stepMapper.selectList(Wrappers.<StepEntity>lambdaQuery()
                         .eq(StepEntity::getWorkflowId, workflowId)
                         .orderByAsc(StepEntity::getSortOrder))

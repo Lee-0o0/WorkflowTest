@@ -9,6 +9,7 @@ import com.workflowtest.engine.persistence.mapper.GroupExecutionMapper;
 import com.workflowtest.engine.persistence.mapper.WorkflowExecutionMapper;
 import com.workflowtest.engine.persistence.mapper.WorkflowGroupMapper;
 import com.workflowtest.engine.persistence.mapper.WorkflowMapper;
+import com.workflowtest.engine.support.CommonConstant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +22,10 @@ import java.util.List;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ExecutionHistoryServiceImpl implements ExecutionHistoryService {
+    private static final String TYPE_GROUP = "GROUP";
+    private static final String TYPE_WORKFLOW = "WORKFLOW";
+    private static final int HISTORY_LIMIT_MAX = 500;
+
     private final GroupExecutionMapper groupExecutions;
     private final WorkflowExecutionMapper workflowExecutions;
     private final WorkflowGroupMapper groups;
@@ -28,16 +33,16 @@ public class ExecutionHistoryServiceImpl implements ExecutionHistoryService {
 
     @Override
     public List<ExecutionSummary> recent(int limit) {
-        int capped = Math.max(1, Math.min(limit, 500));
+        int capped = Math.max(CommonConstant.ONE, Math.min(limit, HISTORY_LIMIT_MAX));
         List<ExecutionSummary> result = new ArrayList<>();
         groupExecutions.selectList(Wrappers.<GroupExecutionEntity>lambdaQuery()
                         .orderByDesc(GroupExecutionEntity::getStartedAt).last("LIMIT " + capped))
-                .forEach(e -> result.add(new ExecutionSummary(String.valueOf(e.getId()), "GROUP",
+                .forEach(e -> result.add(new ExecutionSummary(String.valueOf(e.getId()), TYPE_GROUP,
                         String.valueOf(e.getGroupId()), nameOfGroup(e.getGroupId()), e.getStatus(),
                         e.getStartedAt(), e.getFinishedAt(), e.getElapsedMs(), e.getErrorMessage())));
         workflowExecutions.selectList(Wrappers.<WorkflowExecutionEntity>lambdaQuery()
                         .orderByDesc(WorkflowExecutionEntity::getStartedAt).last("LIMIT " + capped))
-                .forEach(e -> result.add(new ExecutionSummary(String.valueOf(e.getId()), "WORKFLOW",
+                .forEach(e -> result.add(new ExecutionSummary(String.valueOf(e.getId()), TYPE_WORKFLOW,
                         String.valueOf(e.getWorkflowId()), nameOfWorkflow(e.getWorkflowId()), e.getStatus(),
                         e.getStartedAt(), e.getFinishedAt(), e.getElapsedMs(), e.getErrorMessage())));
         return result.stream().sorted(Comparator.comparing(ExecutionSummary::startedAt,

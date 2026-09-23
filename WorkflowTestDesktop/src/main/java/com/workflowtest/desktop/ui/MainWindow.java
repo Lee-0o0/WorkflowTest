@@ -17,6 +17,8 @@ import com.workflowtest.engine.api.execution.StepExecutionQueryService;
 import com.workflowtest.engine.api.definition.WorkflowDefinitionService;
 import com.workflowtest.engine.api.definition.WorkflowGroupService;
 import com.workflowtest.engine.api.execution.WorkflowRunService;
+import com.workflowtest.engine.runtime.EnvironmentResolver;
+import com.workflowtest.engine.runtime.ExecutionContext.VariableScope;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
@@ -90,6 +92,7 @@ public class MainWindow implements TreeContextMenus.Host {
         tree.setPrefWidth(340);
         tree.getStyleClass().add("tree-panel");
         configureTreeContextMenu();
+        configureTreeLazyLoad();
         tree.getSelectionModel().selectedItemProperty().addListener((obs, old, value) ->
                 detailTab.showSelection(toSelection(value), editorActions()));
 
@@ -210,9 +213,9 @@ public class MainWindow implements TreeContextMenus.Host {
 
     private VBox buildGlobalEnvironmentView() {
         Label title = sectionLabel("全局环境变量");
-        Label hint = new Label("""
-                持久化存储于本地 SQLite；application.yml 中 workflowtest.global.* 为默认兜底，数据库同名变量优先。
-                运行时通过 ${global.变量名} 引用。""");
+        Label hint = new Label(
+                "持久化存储于本地 SQLite；application.yml 中 " + EnvironmentResolver.GLOBAL_CONFIG_PREFIX + "* 为默认兜底，数据库同名变量优先。\n"
+                        + "运行时通过 ${" + VariableScope.GLOBAL + "变量名} 引用。");
         hint.getStyleClass().add("hint-label");
         hint.setWrapText(true);
         Button refresh = UiIcons.textButton(Feather.REFRESH_CW, "刷新", this::refreshGlobalEnvironment);
@@ -257,7 +260,7 @@ public class MainWindow implements TreeContextMenus.Host {
         valueCol.setCellValueFactory(cell -> new SimpleStringProperty(
                 EditorForms.json(objectMapper, cell.getValue().value())));
         TableColumn<GlobalVariable, String> refCol = new TableColumn<>("引用");
-        refCol.setCellValueFactory(cell -> new SimpleStringProperty("${global." + cell.getValue().key() + "}"));
+        refCol.setCellValueFactory(cell -> new SimpleStringProperty("${" + VariableScope.GLOBAL + cell.getValue().key() + "}"));
         globalEnvTable.getColumns().addAll(keyCol, valueCol, refCol);
         globalEnvTable.getColumns().add(UiIcons.actionsColumn(this::editGlobalVariable, this::deleteGlobalVariable));
         globalEnvTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
@@ -366,33 +369,9 @@ public class MainWindow implements TreeContextMenus.Host {
         try {
             TreeItem<NodeRef> rootItem = new TreeItem<>(new NodeRef(NodeType.ROOT, null, "测试工程", null, null, null, null));
             rootItem.setExpanded(true);
-            for (ProjectNode projectNode : projectTree.loadTree().projects()) {
-                Project project = projectNode.project();
-                TreeItem<NodeRef> projectItem = new TreeItem<>(new NodeRef(NodeType.PROJECT, project.id(), project.name(),
-                        project.id(), null, null, project));
-                projectItem.setExpanded(true);
-                for (GroupNode groupNode : projectNode.groups()) {
-                    Group group = groupNode.group();
-                    TreeItem<NodeRef> groupItem = new TreeItem<>(new NodeRef(NodeType.GROUP, group.id(), group.name(),
-                            project.id(), group.id(), null, group));
-                    groupItem.setExpanded(true);
-                    addGroupHookNodes(groupItem, group.id(), project.id(), HookType.BEFORE_GROUP);
-                    for (WorkflowNode workflowNode : groupNode.workflows()) {
-                        Workflow workflow = workflowNode.workflow();
-                        TreeItem<NodeRef> workflowItem = new TreeItem<>(new NodeRef(NodeType.WORKFLOW, workflow.id(), workflow.name(),
-                                project.id(), group.id(), workflow.id(), workflow));
-                        workflowItem.setExpanded(true);
-                        for (Step step : workflowNode.steps()) {
-                            workflowItem.getChildren().add(new TreeItem<>(new NodeRef(NodeType.STEP, step.id(),
-                                    step.sortOrder() + ". " + step.name() + " [" + step.type() + "]",
-                                    project.id(), group.id(), workflow.id(), step)));
-                        }
-                        groupItem.getChildren().add(workflowItem);
-                    }
-                    addGroupHookNodes(groupItem, group.id(), project.id(), HookType.AFTER_GROUP);
-                    projectItem.getChildren().add(groupItem);
-                }
-                rootItem.getChildren().add(projectItem);
+            for (Project project : projectTree.listProjects()) {
+                rootItem.getChildren().add(new LazyTreeItem(new NodeRef(NodeType.PROJECT, project.id(), project.name(),
+                        project.id(), null, null, project)));
             }
             tree.setRoot(rootItem);
             if (selected != null) {
@@ -403,36 +382,133 @@ public class MainWindow implements TreeContextMenus.Host {
         } catch (Exception e) { fail(e); }
     }
 
+    private void configureTreeLazyLoad() {
+        tree.addEventHandler(TreeItem.branchExpandedEvent(), event -> {
+            TreeItem<?> expandedItem = event.getTreeItem();
+            if (expandedItem instanceof LazyTreeItem lazy) {
+                ensureChildrenLoaded(lazy);
+            }
+        });
+    }
+
+    private void ensureChildrenLoaded(LazyTreeItem item) {
+        if (item.isChildrenLoaded()) return;
+        NodeRef ref = item.getValue();
+        try {
+            switch (ref.type()) {
+                case PROJECT -> loadProjectChildren(item, ref);
+                case GROUP -> loadGroupChildren(item, ref);
+                case WORKFLOW -> loadWorkflowChildren(item, ref);
+                case HOOK -> loadHookChildren(item, ref);
+                default -> { }
+            }
+            item.setChildrenLoaded(true);
+        } catch (Exception e) {
+            fail(e);
+        }
+    }
+
+    private void loadProjectChildren(LazyTreeItem projectItem, NodeRef ref) {
+        for (Group group : projectTree.listGroups(ref.id())) {
+            projectItem.getChildren().add(new LazyTreeItem(new NodeRef(NodeType.GROUP, group.id(), group.name(),
+                    ref.projectId(), group.id(), null, group)));
+        }
+    }
+
+    private void loadGroupChildren(LazyTreeItem groupItem, NodeRef ref) {
+        addGroupHookNode(groupItem, ref.projectId(), ref.groupId(), HookType.BEFORE_GROUP);
+        for (Workflow workflow : projectTree.listWorkflows(ref.groupId())) {
+            groupItem.getChildren().add(new LazyTreeItem(new NodeRef(NodeType.WORKFLOW, workflow.id(), workflow.name(),
+                    ref.projectId(), ref.groupId(), workflow.id(), workflow)));
+        }
+        addGroupHookNode(groupItem, ref.projectId(), ref.groupId(), HookType.AFTER_GROUP);
+    }
+
+    private void loadWorkflowChildren(LazyTreeItem workflowItem, NodeRef ref) {
+        for (Step step : projectTree.listWorkflowSteps(ref.id())) {
+            workflowItem.getChildren().add(new TreeItem<>(stepNode(ref, step)));
+        }
+    }
+
+    private void loadHookChildren(LazyTreeItem hookItem, NodeRef ref) {
+        for (Step step : hookDefinitions.listSteps(ref.id())) {
+            hookItem.getChildren().add(new TreeItem<>(hookStepNode(ref, step)));
+        }
+    }
+
+    private void addGroupHookNode(LazyTreeItem groupItem, Long projectId, Long groupId, HookType hookType) {
+        for (Hook hook : hookDefinitions.listByGroup(groupId)) {
+            if (hook.hookType() != hookType) continue;
+            String label = hookType == HookType.BEFORE_GROUP ? "组前置钩子" : "组后置钩子";
+            groupItem.getChildren().add(new LazyTreeItem(new NodeRef(NodeType.HOOK, hook.id(), label,
+                    projectId, groupId, null, hook)));
+        }
+    }
+
+    private NodeRef stepNode(NodeRef workflowRef, Step step) {
+        return new NodeRef(NodeType.STEP, step.id(),
+                step.sortOrder() + ". " + step.name() + " [" + step.type() + "]",
+                workflowRef.projectId(), workflowRef.groupId(), workflowRef.workflowId(), step);
+    }
+
+    private NodeRef hookStepNode(NodeRef hookRef, Step step) {
+        return new NodeRef(NodeType.HOOK_STEP, step.id(),
+                step.sortOrder() + ". " + step.name() + " [" + step.type() + "]",
+                hookRef.projectId(), hookRef.groupId(), null, step);
+    }
+
     private void reselect(TreeItem<NodeRef> rootItem, NodeRef target) {
         if (target == null || target.type() == NodeType.ROOT) return;
-        TreeItem<NodeRef> found = findNode(rootItem, target.id(), target.type());
+        TreeItem<NodeRef> found = findNode(rootItem, target);
         if (found != null) tree.getSelectionModel().select(found);
     }
 
-    private TreeItem<NodeRef> findNode(TreeItem<NodeRef> item, Long id, NodeType type) {
-        if (item.getValue() != null && item.getValue().type() == type && java.util.Objects.equals(id, item.getValue().id())) {
-            return item;
+    private TreeItem<NodeRef> findNode(TreeItem<NodeRef> root, NodeRef target) {
+        if (target.type() == NodeType.ROOT) return root;
+        TreeItem<NodeRef> projectItem = findChild(root, NodeType.PROJECT, target.projectId());
+        if (projectItem == null) return null;
+        expandAndLoad(projectItem);
+        if (target.type() == NodeType.PROJECT) return projectItem;
+
+        TreeItem<NodeRef> groupItem = findChild(projectItem, NodeType.GROUP, target.groupId());
+        if (groupItem == null) return null;
+        expandAndLoad(groupItem);
+        if (target.type() == NodeType.GROUP) return groupItem;
+
+        if (target.type() == NodeType.WORKFLOW) {
+            TreeItem<NodeRef> workflowItem = findChild(groupItem, NodeType.WORKFLOW, target.id());
+            if (workflowItem != null) workflowItem.setExpanded(true);
+            return workflowItem;
         }
-        for (TreeItem<NodeRef> child : item.getChildren()) {
-            TreeItem<NodeRef> found = findNode(child, id, type);
-            if (found != null) return found;
+        if (target.type() == NodeType.HOOK) {
+            return findChild(groupItem, NodeType.HOOK, target.id());
+        }
+        for (TreeItem<NodeRef> child : groupItem.getChildren()) {
+            expandAndLoad(child);
+            if (child.getValue().type() == NodeType.WORKFLOW
+                    && Objects.equals(child.getValue().id(), target.workflowId())) {
+                child.setExpanded(true);
+                TreeItem<NodeRef> stepItem = findChild(child, target.type(), target.id());
+                if (stepItem != null) return stepItem;
+            }
+            if (child.getValue().type() == NodeType.HOOK) {
+                TreeItem<NodeRef> stepItem = findChild(child, NodeType.HOOK_STEP, target.id());
+                if (stepItem != null) return stepItem;
+            }
         }
         return null;
     }
 
-    private void addGroupHookNodes(TreeItem<NodeRef> groupItem, Long groupId, Long projectId, HookType hookType) {
-        for (Hook hook : hookDefinitions.listByGroup(groupId)) {
-            if (hook.hookType() != hookType) continue;
-            String label = hookType == HookType.BEFORE_GROUP ? "组前置钩子" : "组后置钩子";
-            TreeItem<NodeRef> hookItem = new TreeItem<>(new NodeRef(NodeType.HOOK, hook.id(), label,
-                    projectId, groupId, null, hook));
-            for (Step step : hook.steps()) {
-                hookItem.getChildren().add(new TreeItem<>(new NodeRef(NodeType.HOOK_STEP, step.id(),
-                        step.sortOrder() + ". " + step.name() + " [" + step.type() + "]",
-                        projectId, groupId, null, step)));
-            }
-            groupItem.getChildren().add(hookItem);
+    private TreeItem<NodeRef> findChild(TreeItem<NodeRef> parent, NodeType type, Long id) {
+        for (TreeItem<NodeRef> child : parent.getChildren()) {
+            if (child.getValue().type() == type && Objects.equals(child.getValue().id(), id)) return child;
         }
+        return null;
+    }
+
+    private void expandAndLoad(TreeItem<NodeRef> item) {
+        item.setExpanded(true);
+        if (item instanceof LazyTreeItem lazy) ensureChildrenLoaded(lazy);
     }
 
     private DetailTabPanel.Selection toSelection(TreeItem<NodeRef> item) {
@@ -564,17 +640,16 @@ public class MainWindow implements TreeContextMenus.Host {
 
     private void runSelected(NodeRef ref) {
         if (ref == null) return;
-        ExecutionListener listener = event -> { };
         if (ref.type() == NodeType.PROJECT) activeExecution = projectExecutions.submit(
-                new ProjectExecutionCommand(ref.id(), Map.of()), listener);
+                new ProjectExecutionCommand(ref.id(), Map.of()));
         else if (ref.type() == NodeType.WORKFLOW) activeExecution = workflowRuns.submit(
-                new WorkflowExecutionCommand(ref.id(), Map.of()), listener);
+                new WorkflowExecutionCommand(ref.id(), Map.of()));
         else if (ref.type() == NodeType.GROUP) activeExecution = groupExecutions.submit(
-                new GroupExecutionCommand(ref.id(), Map.of()), listener);
+                new GroupExecutionCommand(ref.id(), Map.of()));
         else if (ref.workflowId() != null) activeExecution = workflowRuns.submit(
-                new WorkflowExecutionCommand(ref.workflowId(), Map.of()), listener);
+                new WorkflowExecutionCommand(ref.workflowId(), Map.of()));
         else if (ref.groupId() != null) activeExecution = groupExecutions.submit(
-                new GroupExecutionCommand(ref.groupId(), Map.of()), listener);
+                new GroupExecutionCommand(ref.groupId(), Map.of()));
         else { EditorDialogs.showError("请选择项目、组或工作流"); return; }
         status.setText("执行中：" + ref.name());
         activeExecution.future().whenComplete((result, error) -> Platform.runLater(() -> {
@@ -640,5 +715,21 @@ public class MainWindow implements TreeContextMenus.Host {
         @Override public String toString() { return name; }
     }
 
+    /** 支持懒加载子节点的树节点（步骤叶子节点使用普通 {@link TreeItem}）。 */
+    private static final class LazyTreeItem extends TreeItem<NodeRef> {
+        private boolean childrenLoaded;
 
+        private LazyTreeItem(NodeRef ref) {
+            super(ref);
+        }
+
+        @Override public boolean isLeaf() {
+            NodeRef ref = getValue();
+            return ref.type() == NodeType.STEP || ref.type() == NodeType.HOOK_STEP;
+        }
+
+        private boolean isChildrenLoaded() { return childrenLoaded; }
+
+        private void setChildrenLoaded(boolean childrenLoaded) { this.childrenLoaded = childrenLoaded; }
+    }
 }

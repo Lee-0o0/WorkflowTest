@@ -63,11 +63,17 @@ public class HookDefinitionServiceImpl implements HookDefinitionService {
                 });
     }
 
-    private Hook toHook(HookEntity entity) {
-        List<Step> steps = hookStepMapper.selectList(Wrappers.<HookStepEntity>lambdaQuery()
-                        .eq(HookStepEntity::getHookId, entity.getId())
+    @Override
+    @Transactional(readOnly = true)
+    public List<Step> listSteps(Long hookId) {
+        support.require(hookMapper.selectById(hookId), "钩子不存在");
+        return hookStepMapper.selectList(Wrappers.<HookStepEntity>lambdaQuery()
+                        .eq(HookStepEntity::getHookId, hookId)
                         .orderByAsc(HookStepEntity::getSortOrder))
                 .stream().map(support::toHookStep).toList();
-        return support.toHook(entity, steps);
+    }
+
+    private Hook toHook(HookEntity entity) {
+        return support.toHook(entity, List.of());
     }
 }

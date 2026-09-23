@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import lombok.RequiredArgsConstructor;
+import com.workflowtest.engine.support.EngineMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -16,7 +16,9 @@ import java.util.regex.Pattern;
 @Component
 @RequiredArgsConstructor
 public class VariableTemplateResolver {
-    private static final Pattern VARIABLE = Pattern.compile("\\$\\{([^}]+)}");
+    private static final String VARIABLE_PATTERN = "\\$\\{([^}]+)}";
+    private static final Pattern VARIABLE = Pattern.compile(VARIABLE_PATTERN);
+
     private final ObjectMapper objectMapper;
 
     public JsonNode resolve(JsonNode source, ExecutionContext context) {
@@ -37,14 +39,14 @@ public class VariableTemplateResolver {
         Matcher exact = VARIABLE.matcher(text);
         if (exact.matches()) {
             Object value = context.resolve(exact.group(1));
-            if (value == null) throw new IllegalArgumentException("变量不存在: " + exact.group(1));
+            if (value == null) throw new IllegalArgumentException(String.format(EngineMessages.VARIABLE_NOT_FOUND, exact.group(1)));
             return objectMapper.valueToTree(value);
         }
         Matcher matcher = VARIABLE.matcher(text);
         StringBuffer output = new StringBuffer();
         while (matcher.find()) {
             Object value = context.resolve(matcher.group(1));
-            if (value == null) throw new IllegalArgumentException("变量不存在: " + matcher.group(1));
+            if (value == null) throw new IllegalArgumentException(String.format(EngineMessages.VARIABLE_NOT_FOUND, matcher.group(1)));
             matcher.appendReplacement(output, Matcher.quoteReplacement(String.valueOf(value)));
         }
         matcher.appendTail(output);

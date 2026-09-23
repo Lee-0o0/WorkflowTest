@@ -45,7 +45,7 @@ class EngineFailureBehaviorTest extends BasicTestApplication {
         stepDefinitions.saveHookStep(beforeGroupHook.id(),
                 httpStep(beforeGroupHook.id(), "failHook", 1, "http://127.0.0.1:1/unreachable"));
 
-        var result = groupExecutions.submit(new GroupExecutionCommand(group.id(), Map.of()), event -> {})
+        var result = groupExecutions.submit(new GroupExecutionCommand(group.id(), Map.of()))
                 .future().get(15, TimeUnit.SECONDS);
 
         assertThat(result.status()).isEqualTo(Status.FAILED);
