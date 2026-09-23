@@ -1,6 +1,5 @@
 package com.workflowtest.engine.api.execution.listener;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -156,7 +155,12 @@ public final class ExecutionListeners {
 
     public static void notify(List<ExecutionListener> listeners, ExecutionEventType type,
                               String executionId, String code, String message) {
-        notify(listeners, new ExecutionEvent(type, executionId, code, message, LocalDateTime.now()));
+        notify(listeners, ExecutionEvent.of(type, executionId, code, message));
+    }
+
+    public static void notify(List<ExecutionListener> listeners, ExecutionEventType type,
+                              String executionId, String code, String message, ExecutionEventContext context) {
+        notify(listeners, ExecutionEvent.of(type, executionId, code, message, context));
     }
 
     private static ExecutionListener noop() {

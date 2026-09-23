@@ -1,6 +1,7 @@
 package com.workflowtest.engine.application.execution;
 
 import com.workflowtest.engine.api.execution.listener.ExecutionEvent;
+import com.workflowtest.engine.api.execution.listener.ExecutionEventContext;
 import com.workflowtest.engine.api.execution.listener.ExecutionEventType;
 import com.workflowtest.engine.api.execution.listener.ExecutionListener;
 import com.workflowtest.engine.api.execution.listener.ExecutionListeners;
@@ -23,6 +24,11 @@ public class ExecutionListenerPublisher {
 
     public void notify(ExecutionEventType type, String executionId, String code, String message) {
         ExecutionListeners.notify(listeners, type, executionId, code, message);
+    }
+
+    public void notify(ExecutionEventType type, String executionId, String code, String message,
+                       ExecutionEventContext context) {
+        ExecutionListeners.notify(listeners, type, executionId, code, message, context);
     }
 
     public void notify(ExecutionEvent event) {

@@ -60,11 +60,21 @@ public class ExecutionContext {
     }
 
     public Object resolve(String path) {
-        if (path.startsWith(VariableScope.GLOBAL)) return nested(environment.global(), path.substring(VariableScope.GLOBAL.length()));
-        if (path.startsWith(VariableScope.PROJECT)) return nested(environment.project(), path.substring(VariableScope.PROJECT.length()));
-        if (path.startsWith(VariableScope.GROUP)) return resolveScoped(path.substring(VariableScope.GROUP.length()), groupVariables, environment.group());
-        if (path.startsWith(VariableScope.WORKFLOW)) return resolveScoped(path.substring(VariableScope.WORKFLOW.length()), workflowVariables, environment.workflow());
-        if (path.startsWith(VariableScope.STEPS)) return nested(stepResults, path.substring(VariableScope.STEPS.length()));
+        if (path.startsWith(VariableScope.GLOBAL)) {
+            return nested(environment.global(), path.substring(VariableScope.GLOBAL.length()));
+        }
+        if (path.startsWith(VariableScope.PROJECT)) {
+            return nested(environment.project(), path.substring(VariableScope.PROJECT.length()));
+        }
+        if (path.startsWith(VariableScope.GROUP)) {
+            return resolveScoped(path.substring(VariableScope.GROUP.length()), groupVariables, environment.group());
+        }
+        if (path.startsWith(VariableScope.WORKFLOW)) {
+            return resolveScoped(path.substring(VariableScope.WORKFLOW.length()), workflowVariables, environment.workflow());
+        }
+        if (path.startsWith(VariableScope.STEPS)) {
+            return nested(stepResults, path.substring(VariableScope.STEPS.length()));
+        }
         return resolveScoped(path, workflowVariables, environment.workflow());
     }
 
@@ -73,11 +83,21 @@ public class ExecutionContext {
         return value != null ? value : nested(configured, key);
     }
 
+    /**
+     * 按 JsonPath 从变量根对象中读取嵌套值。
+     * <p>
+     * root 实际是环境配置、运行时变量或步骤输出等 {@code Map<String, Object>}，其中可能包含嵌套对象/数组；
+     * path 支持 {@code profile.level}、{@code items[0].id} 等深层路径，不能只用 {@code Map#get} 取顶层 key。
+     * 先序列化为 JSON 再查询，是为统一 Map/List/标量的访问方式，并与步骤 HTTP/SQL 的 JSON 结构保持一致。
+     */
     private Object nested(Object root, String path) {
-        if (root == null) return null;
+        if (root == null) {
+            return null;
+        }
         try {
             return JsonPath.read(objectMapper.writeValueAsString(root), "$." + path);
         } catch (Exception e) {
+            // 路径不存在或类型不匹配时视为未命中，由上层 resolve 继续回退或返回 null。
             return null;
         }
     }

@@ -22,7 +22,9 @@ public class VariableTemplateResolver {
     private final ObjectMapper objectMapper;
 
     public JsonNode resolve(JsonNode source, ExecutionContext context) {
-        if (source == null) return objectMapper.nullNode();
+        if (source == null) {
+            return objectMapper.nullNode();
+        }
         if (source.isObject()) {
             ObjectNode result = objectMapper.createObjectNode();
             Iterator<Map.Entry<String, JsonNode>> fields = source.fields();
@@ -34,19 +36,28 @@ public class VariableTemplateResolver {
             source.forEach(node -> result.add(resolve(node, context)));
             return result;
         }
-        if (!source.isTextual()) return source.deepCopy();
+        if (!source.isTextual()) {
+            return source.deepCopy();
+        }
         String text = source.asText();
+        // 整段文本就是一个占位符（如 "${workflow.orderId}"）：替换后保留变量原始类型（数字/布尔/对象/数组）。
         Matcher exact = VARIABLE.matcher(text);
         if (exact.matches()) {
             Object value = context.resolve(exact.group(1));
-            if (value == null) throw new IllegalArgumentException(String.format(EngineMessages.VARIABLE_NOT_FOUND, exact.group(1)));
+            if (value == null) {
+                throw new IllegalArgumentException(String.format(EngineMessages.VARIABLE_NOT_FOUND, exact.group(1)));
+            }
             return objectMapper.valueToTree(value);
         }
+        // 文本中包含普通字符与占位符混合（如 "order-${workflow.orderId}-done"）：逐段替换，结果始终为字符串。
         Matcher matcher = VARIABLE.matcher(text);
         StringBuffer output = new StringBuffer();
         while (matcher.find()) {
             Object value = context.resolve(matcher.group(1));
-            if (value == null) throw new IllegalArgumentException(String.format(EngineMessages.VARIABLE_NOT_FOUND, matcher.group(1)));
+            if (value == null) {
+                throw new IllegalArgumentException(String.format(EngineMessages.VARIABLE_NOT_FOUND, matcher.group(1)));
+            }
+            // quoteReplacement 避免替换值里的 $、\ 被 appendReplacement 当作正则元字符。
             matcher.appendReplacement(output, Matcher.quoteReplacement(String.valueOf(value)));
         }
         matcher.appendTail(output);

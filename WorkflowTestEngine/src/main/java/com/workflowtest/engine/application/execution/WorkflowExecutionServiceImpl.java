@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflowtest.engine.api.definition.DefinitionModels.*;
 import com.workflowtest.engine.api.execution.ExecutionModels.*;
 import com.workflowtest.engine.api.execution.ExecutionControlService;
+import com.workflowtest.engine.api.execution.listener.ExecutionEventAttributes;
+import com.workflowtest.engine.api.execution.listener.ExecutionEventContext;
 import com.workflowtest.engine.api.execution.listener.ExecutionEventType;
 import com.workflowtest.engine.api.execution.GroupExecutionService;
 import com.workflowtest.engine.api.execution.PackageExecutionService;
@@ -86,8 +88,12 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
         AtomicBoolean cancelled = new AtomicBoolean();
         cancellations.put(executionId, cancelled);
         CompletableFuture<ExecutionResult> future = CompletableFuture.supplyAsync(() -> {
-            try { return executeProject(executionId, command, cancelled); }
-            finally { cancellations.remove(executionId); }
+            try {
+                return executeProject(executionId, command, cancelled);
+            }
+            finally {
+                cancellations.remove(executionId);
+            }
         }, executor);
         return new ExecutionHandle(executionId, future);
     }
@@ -98,8 +104,12 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
         AtomicBoolean cancelled = new AtomicBoolean();
         cancellations.put(executionId, cancelled);
         CompletableFuture<ExecutionResult> future = CompletableFuture.supplyAsync(() -> {
-            try { return executeDirectWorkflow(command, cancelled); }
-            finally { cancellations.remove(executionId); }
+            try {
+                return executeDirectWorkflow(command, cancelled);
+            }
+            finally {
+                cancellations.remove(executionId);
+            }
         }, executor);
         return new ExecutionHandle(executionId, future);
     }
@@ -110,8 +120,12 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
         AtomicBoolean cancelled = new AtomicBoolean();
         cancellations.put(executionId, cancelled);
         CompletableFuture<ExecutionResult> future = CompletableFuture.supplyAsync(() -> {
-            try { return executeGroup(command, cancelled); }
-            finally { cancellations.remove(executionId); }
+            try {
+                return executeGroup(command, cancelled);
+            }
+            finally {
+                cancellations.remove(executionId);
+            }
         }, executor);
         return new ExecutionHandle(executionId, future);
     }
@@ -122,8 +136,12 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
         AtomicBoolean cancelled = new AtomicBoolean();
         cancellations.put(executionId, cancelled);
         CompletableFuture<ExecutionResult> future = CompletableFuture.supplyAsync(() -> {
-            try { return executePackage(executionId, command, cancelled); }
-            finally { cancellations.remove(executionId); }
+            try {
+                return executePackage(executionId, command, cancelled);
+            }
+            finally {
+                cancellations.remove(executionId);
+            }
         }, executor);
         return new ExecutionHandle(executionId, future);
     }
@@ -131,7 +149,9 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
     @Override
     public void cancel(String executionId) {
         AtomicBoolean flag = cancellations.get(executionId);
-        if (flag != null) flag.set(true);
+        if (flag != null) {
+            flag.set(true);
+        }
     }
 
     private ExecutionResult executePackage(String executionId, PackageExecutionCommand command, AtomicBoolean cancelled) {
@@ -144,7 +164,8 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
         EffectiveEnvironment environment = packageEnvironment(definition.path(ExecutionPackage.ENVIRONMENT));
         ExecutionContext context = new ExecutionContext(environment, new LinkedHashMap<>(), safeMap(command.inputs()), objectMapper);
         List<String> errors = new ArrayList<>(); Status finalStatus = Status.PASSED;
-        listenerPublisher.notify( ExecutionEventType.WORKFLOW_STARTED, executionId, workflowId, workflowId);
+        ExecutionEventContext packageContext = eventContext(context, Map.of(ExecutionEventAttributes.WORKFLOW_ID, workflowId));
+        listenerPublisher.notify(ExecutionEventType.WORKFLOW_STARTED, executionId, workflowId, workflowId, packageContext);
         try {
             for (RuntimeStep step : packageSteps(definition.path(ExecutionPackage.STEPS))) {
                 try {
@@ -156,24 +177,28 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
             }
         } catch (CancellationException e) {
             finalStatus = Status.CANCELLED; errors.add(e.getMessage());
-            listenerPublisher.notify( ExecutionEventType.EXECUTION_CANCELLED, executionId, workflowId, e.getMessage());
+            listenerPublisher.notify(ExecutionEventType.EXECUTION_CANCELLED, executionId, workflowId, e.getMessage(), packageContext);
         } catch (Throwable e) {
             finalStatus = Status.FAILED; if (errors.isEmpty()) errors.add(message(e));
         }
         long elapsed = Duration.ofNanos(System.nanoTime() - started).toMillis();
-        listenerPublisher.notify( ExecutionEventType.WORKFLOW_COMPLETED, executionId, workflowId, finalStatus.name());
+        listenerPublisher.notify(ExecutionEventType.WORKFLOW_COMPLETED, executionId, workflowId, finalStatus.name(),
+                withStatus(packageContext, finalStatus));
         return new ExecutionResult(executionId, finalStatus, elapsed, context.visibleVariables(), List.copyOf(errors));
     }
 
     private void runPackageStep(RuntimeStep step, ExecutionContext context,
                                 AtomicBoolean cancelled, String executionId) throws Throwable {
         checkCancelled(cancelled);
-        listenerPublisher.notify( ExecutionEventType.STEP_STARTED, executionId, step.code(), step.name());
+        ExecutionEventContext stepContext = eventContext(context, Map.of(
+                ExecutionEventAttributes.STEP_CODE, step.code(),
+                ExecutionEventAttributes.STEP_NAME, step.name()));
+        listenerPublisher.notify(ExecutionEventType.STEP_STARTED, executionId, step.code(), step.name(), stepContext);
         try {
             stepRunner.execute(step, context, false);
-            listenerPublisher.notify( ExecutionEventType.STEP_PASSED, executionId, step.code(), step.name());
+            listenerPublisher.notify(ExecutionEventType.STEP_PASSED, executionId, step.code(), step.name(), stepContext);
         } catch (Throwable e) {
-            listenerPublisher.notify( ExecutionEventType.STEP_FAILED, executionId, step.code(), message(e));
+            listenerPublisher.notify(ExecutionEventType.STEP_FAILED, executionId, step.code(), message(e), stepContext);
             throw e;
         }
     }
@@ -182,7 +207,9 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
         if (!nodes.isArray()) return List.of();
         List<RuntimeStep> result = new ArrayList<>(); int fallbackOrder = 0;
         for (JsonNode node : nodes) {
-            if (!node.path(StepField.ENABLED).asBoolean(true)) continue;
+            if (!node.path(StepField.ENABLED).asBoolean(true)) {
+                continue;
+            }
             String code = node.path(StepField.CODE).asText("step" + fallbackOrder);
             String config = node.has(StepField.CONFIG_JSON) ? node.path(StepField.CONFIG_JSON).asText(CommonConstant.JSON_EMPTY_OBJECT) : json(node.path("config"));
             String extraction = node.has(StepField.EXTRACTION_JSON) ? node.path(StepField.EXTRACTION_JSON).asText(CommonConstant.JSON_EMPTY_ARRAY) : json(node.path(StepField.EXTRACTION));
@@ -222,9 +249,14 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
         try {
             String actual = ExecutionPackage.CHECKSUM_PREFIX + HexFormat.of().formatHex(MessageDigest.getInstance(CommonConstant.SHA_256)
                     .digest(objectMapper.writeValueAsString(definition).getBytes(StandardCharsets.UTF_8)));
-            if (!expected.equalsIgnoreCase(actual)) throw new IllegalArgumentException(EngineMessages.PACKAGE_CHECKSUM_MISMATCH);
-        } catch (IllegalArgumentException e) { throw e; }
-        catch (Exception e) { throw new IllegalStateException(EngineMessages.PACKAGE_CHECKSUM_FAILED, e); }
+            if (!expected.equalsIgnoreCase(actual)) {
+                throw new IllegalArgumentException(EngineMessages.PACKAGE_CHECKSUM_MISMATCH);
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException(EngineMessages.PACKAGE_CHECKSUM_FAILED, e);
+        }
     }
 
     private ExecutionResult executeDirectWorkflow(WorkflowExecutionCommand command, AtomicBoolean cancelled) {
@@ -240,7 +272,11 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
     private ExecutionResult executeProject(String projectExecutionId, ProjectExecutionCommand command, AtomicBoolean cancelled) {
         long startNanos = System.nanoTime();
         ProjectEntity project = required(projectMapper.selectById(command.projectId()), "项目不存在");
-        listenerPublisher.notify( ExecutionEventType.PROJECT_STARTED, projectExecutionId, String.valueOf(project.getId()), project.getName());
+        ExecutionEventContext projectContext = scopedContext(
+                environmentResolver.resolve(project.getId(), null, null),
+                Map.of(ExecutionEventAttributes.PROJECT_ID, project.getId()));
+        listenerPublisher.notify(ExecutionEventType.PROJECT_STARTED, projectExecutionId, String.valueOf(project.getId()),
+                project.getName(), projectContext);
         List<String> errors = new ArrayList<>();
         Status finalStatus = Status.PASSED;
         try {
@@ -260,31 +296,33 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
             }
         } catch (CancellationException e) {
             finalStatus = Status.CANCELLED; errors.add(e.getMessage());
-            listenerPublisher.notify( ExecutionEventType.EXECUTION_CANCELLED, projectExecutionId, String.valueOf(project.getId()), e.getMessage());
+            listenerPublisher.notify(ExecutionEventType.EXECUTION_CANCELLED, projectExecutionId, String.valueOf(project.getId()),
+                    e.getMessage(), projectContext);
         } catch (Throwable e) {
             finalStatus = Status.FAILED; errors.add(message(e));
         }
         long elapsed = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
-        listenerPublisher.notify( ExecutionEventType.PROJECT_COMPLETED, projectExecutionId, String.valueOf(project.getId()), finalStatus.name());
+        listenerPublisher.notify(ExecutionEventType.PROJECT_COMPLETED, projectExecutionId, String.valueOf(project.getId()),
+                finalStatus.name(), withStatus(projectContext, finalStatus));
         return new ExecutionResult(projectExecutionId, finalStatus, elapsed, Map.of(), List.copyOf(errors));
     }
 
     private ExecutionResult executeGroup(GroupExecutionCommand command, AtomicBoolean cancelled) {
         long startNanos = System.nanoTime();
-        LocalDateTime startedAt = LocalDateTime.now();
         WorkflowGroupEntity group = required(groupMapper.selectById(command.groupId()), "工作流组不存在");
         ProjectEntity project = required(projectMapper.selectById(group.getProjectId()), "项目不存在");
         EffectiveEnvironment groupEnvironment = environmentResolver.resolve(project.getId(), group.getId(), null);
         Map<String, Object> groupVariables = new LinkedHashMap<>(safeMap(command.inputs()));
         ExecutionContext groupContext = new ExecutionContext(groupEnvironment, groupVariables, Map.of(), objectMapper);
-        GroupExecutionEntity execution = new GroupExecutionEntity();
-        execution.setProjectId(project.getId()); execution.setGroupId(group.getId());
-        execution.setStatus(Status.RUNNING.name()); execution.setStartedAt(startedAt);
-        execution.setInputJson(json(command.inputs())); execution.setEnvironmentSnapshot(json(groupEnvironment));
-        groupExecutionMapper.insert(execution);
+        GroupExecutionEntity execution = beginGroupExecution(project.getId(), group.getId(), command.inputs(), groupEnvironment);
         Long groupExecutionId = execution.getId();
         String eventId = String.valueOf(groupExecutionId);
-        listenerPublisher.notify( ExecutionEventType.GROUP_STARTED, eventId, String.valueOf(group.getId()), group.getName());
+        ExecutionEventContext groupEventContext = eventContext(groupContext, Map.of(
+                ExecutionEventAttributes.PROJECT_ID, project.getId(),
+                ExecutionEventAttributes.GROUP_ID, group.getId(),
+                ExecutionEventAttributes.GROUP_EXECUTION_ID, groupExecutionId));
+        listenerPublisher.notify(ExecutionEventType.GROUP_STARTED, eventId, String.valueOf(group.getId()), group.getName(),
+                groupEventContext);
         List<String> errors = new ArrayList<>();
         Status finalStatus = Status.PASSED;
         try {
@@ -308,39 +346,38 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
                     null, groupContext, true, cancelled);
         } catch (CancellationException e) {
             finalStatus = Status.CANCELLED; errors.add(e.getMessage());
-            listenerPublisher.notify( ExecutionEventType.EXECUTION_CANCELLED, eventId, String.valueOf(group.getId()), e.getMessage());
+            listenerPublisher.notify(ExecutionEventType.EXECUTION_CANCELLED, eventId, String.valueOf(group.getId()),
+                    e.getMessage(), groupEventContext);
         } catch (Throwable e) {
             finalStatus = Status.FAILED; errors.add(message(e));
         }
-        long elapsed = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
-        execution.setStatus(finalStatus.name()); execution.setFinishedAt(LocalDateTime.now()); execution.setElapsedMs(elapsed);
-        execution.setContextSnapshot(json(groupVariables)); execution.setErrorMessage(String.join("; ", errors));
-        groupExecutionMapper.updateById(execution);
-        listenerPublisher.notify( ExecutionEventType.GROUP_COMPLETED, eventId, String.valueOf(group.getId()), finalStatus.name());
-        return new ExecutionResult(eventId, finalStatus, elapsed, Map.copyOf(groupVariables), List.copyOf(errors));
+        finishGroupExecution(execution, finalStatus, startNanos, groupVariables, errors);
+        listenerPublisher.notify(ExecutionEventType.GROUP_COMPLETED, eventId, String.valueOf(group.getId()), finalStatus.name(),
+                withStatus(groupEventContext, finalStatus));
+        return new ExecutionResult(eventId, finalStatus, execution.getElapsedMs(), Map.copyOf(groupVariables), List.copyOf(errors));
     }
 
     private ExecutionResult executeWorkflow(Long groupExecutionId, WorkflowEntity workflow,
                                             ExecutionContext context, AtomicBoolean cancelled) {
         long startNanos = System.nanoTime();
-        WorkflowExecutionEntity execution = new WorkflowExecutionEntity();
-        execution.setGroupExecutionId(groupExecutionId);
-        execution.setWorkflowId(workflow.getId());
-        execution.setStatus(Status.RUNNING.name());
-        execution.setStartedAt(LocalDateTime.now());
-        execution.setInputJson("{}");
-        execution.setEnvironmentSnapshot(json(context.environment()));
         List<StepEntity> steps = stepMapper.selectList(
                 Wrappers.<StepEntity>lambdaQuery()
                     .eq(StepEntity::getWorkflowId, workflow.getId())
                     .eq(StepEntity::getEnabled, true)
                     .orderByAsc(StepEntity::getSortOrder)
         );
-        execution.setWorkflowSnapshot(json(Map.of("workflow", workflow, "steps", steps)));
-        workflowExecutionMapper.insert(execution);
+        WorkflowExecutionEntity execution = beginWorkflowExecution(groupExecutionId, workflow, context, steps);
         Long workflowExecutionId = execution.getId();
         String eventId = String.valueOf(workflowExecutionId);
-        listenerPublisher.notify( ExecutionEventType.WORKFLOW_STARTED, eventId, String.valueOf(workflow.getId()), workflow.getName());
+        Map<String, Object> workflowAttributes = new LinkedHashMap<>();
+        workflowAttributes.put(ExecutionEventAttributes.WORKFLOW_ID, workflow.getId());
+        workflowAttributes.put(ExecutionEventAttributes.WORKFLOW_EXECUTION_ID, workflowExecutionId);
+        if (groupExecutionId != null) {
+            workflowAttributes.put(ExecutionEventAttributes.GROUP_EXECUTION_ID, groupExecutionId);
+        }
+        ExecutionEventContext workflowEventContext = eventContext(context, workflowAttributes);
+        listenerPublisher.notify(ExecutionEventType.WORKFLOW_STARTED, eventId, String.valueOf(workflow.getId()), workflow.getName(),
+                workflowEventContext);
         List<String> errors = new ArrayList<>();
         Status finalStatus = Status.PASSED;
         try {
@@ -356,17 +393,16 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
             }
         } catch (CancellationException e) {
             finalStatus = Status.CANCELLED; errors.add(e.getMessage());
-            listenerPublisher.notify( ExecutionEventType.EXECUTION_CANCELLED, eventId, String.valueOf(workflow.getId()), e.getMessage());
+            listenerPublisher.notify(ExecutionEventType.EXECUTION_CANCELLED, eventId, String.valueOf(workflow.getId()),
+                    e.getMessage(), workflowEventContext);
         } catch (Throwable e) {
             finalStatus = Status.FAILED;
             if (errors.isEmpty()) errors.add(message(e));
         }
-        long elapsed = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
-        execution.setStatus(finalStatus.name()); execution.setFinishedAt(LocalDateTime.now()); execution.setElapsedMs(elapsed);
-        execution.setContextSnapshot(json(context.visibleVariables())); execution.setErrorMessage(String.join("; ", errors));
-        workflowExecutionMapper.updateById(execution);
-        listenerPublisher.notify( ExecutionEventType.WORKFLOW_COMPLETED, eventId, String.valueOf(workflow.getId()), finalStatus.name());
-        return new ExecutionResult(eventId, finalStatus, elapsed, context.visibleVariables(), List.copyOf(errors));
+        finishWorkflowExecution(execution, finalStatus, startNanos, context, errors);
+        listenerPublisher.notify(ExecutionEventType.WORKFLOW_COMPLETED, eventId, String.valueOf(workflow.getId()), finalStatus.name(),
+                withStatus(workflowEventContext, finalStatus));
+        return new ExecutionResult(eventId, finalStatus, execution.getElapsedMs(), context.visibleVariables(), List.copyOf(errors));
     }
 
     private void runHook(Long groupId, HookType hookType,
@@ -375,16 +411,25 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
                          AtomicBoolean cancelled) throws Throwable {
         HookEntity hook = hookMapper.selectOne(Wrappers.<HookEntity>lambdaQuery()
                 .eq(HookEntity::getGroupId, groupId)
-                .eq(HookEntity::getHookType, hookType.name()).eq(HookEntity::getEnabled, true));
-        if (hook == null) return;
-        HookExecutionEntity execution = new HookExecutionEntity();
-        execution.setGroupExecutionId(groupExecutionId);
-        execution.setWorkflowExecutionId(workflowExecutionId); execution.setHookId(hook.getId());
-        execution.setHookType(hookType.name()); execution.setStatus(Status.RUNNING.name()); execution.setStartedAt(LocalDateTime.now());
-        hookExecutionMapper.insert(execution);
+                .eq(HookEntity::getHookType, hookType.name())
+                .eq(HookEntity::getEnabled, true));
+        if (hook == null) {
+            return;
+        }
+        HookExecutionEntity execution = beginHookExecution(groupExecutionId, workflowExecutionId, hook.getId(), hookType);
         Long hookExecutionId = execution.getId();
         String parentEventId = String.valueOf(workflowExecutionId != null ? workflowExecutionId : groupExecutionId);
-        listenerPublisher.notify( ExecutionEventType.HOOK_STARTED, parentEventId, hookType.name(), hookType.name());
+        Map<String, Object> hookAttributes = new LinkedHashMap<>();
+        hookAttributes.put(ExecutionEventAttributes.HOOK_TYPE, hookType.name());
+        hookAttributes.put(ExecutionEventAttributes.HOOK_EXECUTION_ID, hookExecutionId);
+        if (groupExecutionId != null) {
+            hookAttributes.put(ExecutionEventAttributes.GROUP_EXECUTION_ID, groupExecutionId);
+        }
+        if (workflowExecutionId != null) {
+            hookAttributes.put(ExecutionEventAttributes.WORKFLOW_EXECUTION_ID, workflowExecutionId);
+        }
+        ExecutionEventContext hookEventContext = eventContext(context, hookAttributes);
+        listenerPublisher.notify(ExecutionEventType.HOOK_STARTED, parentEventId, hookType.name(), hookType.name(), hookEventContext);
         long start = System.nanoTime();
         try {
             List<HookStepEntity> steps = hookStepMapper.selectList(Wrappers.<HookStepEntity>lambdaQuery()
@@ -394,17 +439,91 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
                 checkCancelled(cancelled);
                 stepRunner.run(runtime(entity), context, groupScope, null, hookExecutionId, cancelled);
             }
-            execution.setStatus(Status.PASSED.name());
-            listenerPublisher.notify( ExecutionEventType.HOOK_PASSED, parentEventId, hookType.name(), "钩子成功");
+            markHookPassed(execution);
+            listenerPublisher.notify(ExecutionEventType.HOOK_PASSED, parentEventId, hookType.name(), "钩子成功", hookEventContext);
         } catch (Throwable e) {
-            execution.setStatus(Status.FAILED.name()); execution.setErrorMessage(message(e));
-            listenerPublisher.notify( ExecutionEventType.HOOK_FAILED, parentEventId, hookType.name(), message(e));
+            markHookFailed(execution, e);
+            listenerPublisher.notify(ExecutionEventType.HOOK_FAILED, parentEventId, hookType.name(), message(e), hookEventContext);
             throw e;
         } finally {
-            execution.setFinishedAt(LocalDateTime.now());
-            execution.setElapsedMs(Duration.ofNanos(System.nanoTime() - start).toMillis());
-            execution.setOutputJson(json(context.visibleVariables())); hookExecutionMapper.updateById(execution);
+            finishHookExecution(execution, context, start);
         }
+    }
+
+    private GroupExecutionEntity beginGroupExecution(Long projectId, Long groupId,
+                                                   Map<String, Object> inputs, EffectiveEnvironment environment) {
+        GroupExecutionEntity execution = new GroupExecutionEntity();
+        execution.setProjectId(projectId);
+        execution.setGroupId(groupId);
+        execution.setStatus(Status.RUNNING.name());
+        execution.setStartedAt(LocalDateTime.now());
+        execution.setInputJson(json(inputs));
+        execution.setEnvironmentSnapshot(json(environment));
+        groupExecutionMapper.insert(execution);
+        return execution;
+    }
+
+    private void finishGroupExecution(GroupExecutionEntity execution, Status finalStatus, long startNanos,
+                                      Map<String, Object> contextVariables, List<String> errors) {
+        execution.setStatus(finalStatus.name());
+        execution.setFinishedAt(LocalDateTime.now());
+        execution.setElapsedMs(Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
+        execution.setContextSnapshot(json(contextVariables));
+        execution.setErrorMessage(String.join("; ", errors));
+        groupExecutionMapper.updateById(execution);
+    }
+
+    private WorkflowExecutionEntity beginWorkflowExecution(Long groupExecutionId, WorkflowEntity workflow,
+                                                           ExecutionContext context, List<StepEntity> steps) {
+        WorkflowExecutionEntity execution = new WorkflowExecutionEntity();
+        execution.setGroupExecutionId(groupExecutionId);
+        execution.setWorkflowId(workflow.getId());
+        execution.setStatus(Status.RUNNING.name());
+        execution.setStartedAt(LocalDateTime.now());
+        execution.setInputJson(CommonConstant.JSON_EMPTY_OBJECT);
+        execution.setEnvironmentSnapshot(json(context.environment()));
+        execution.setWorkflowSnapshot(json(Map.of("workflow", workflow, "steps", steps)));
+        workflowExecutionMapper.insert(execution);
+        return execution;
+    }
+
+    private void finishWorkflowExecution(WorkflowExecutionEntity execution, Status finalStatus, long startNanos,
+                                         ExecutionContext context, List<String> errors) {
+        execution.setStatus(finalStatus.name());
+        execution.setFinishedAt(LocalDateTime.now());
+        execution.setElapsedMs(Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
+        execution.setContextSnapshot(json(context.visibleVariables()));
+        execution.setErrorMessage(String.join("; ", errors));
+        workflowExecutionMapper.updateById(execution);
+    }
+
+    private HookExecutionEntity beginHookExecution(Long groupExecutionId, Long workflowExecutionId,
+                                                   Long hookId, HookType hookType) {
+        HookExecutionEntity execution = new HookExecutionEntity();
+        execution.setGroupExecutionId(groupExecutionId);
+        execution.setWorkflowExecutionId(workflowExecutionId);
+        execution.setHookId(hookId);
+        execution.setHookType(hookType.name());
+        execution.setStatus(Status.RUNNING.name());
+        execution.setStartedAt(LocalDateTime.now());
+        hookExecutionMapper.insert(execution);
+        return execution;
+    }
+
+    private void markHookPassed(HookExecutionEntity execution) {
+        execution.setStatus(Status.PASSED.name());
+    }
+
+    private void markHookFailed(HookExecutionEntity execution, Throwable error) {
+        execution.setStatus(Status.FAILED.name());
+        execution.setErrorMessage(message(error));
+    }
+
+    private void finishHookExecution(HookExecutionEntity execution, ExecutionContext context, long startNanos) {
+        execution.setFinishedAt(LocalDateTime.now());
+        execution.setElapsedMs(Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
+        execution.setOutputJson(json(context.visibleVariables()));
+        hookExecutionMapper.updateById(execution);
     }
 
     private RuntimeStep runtime(StepEntity e) {
@@ -416,9 +535,27 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
                 e.getSortOrder(), e.getConfigJson(), e.getExtractionJson(), e.getAssertionJson());
     }
 
+    private ExecutionEventContext eventContext(ExecutionContext context, Map<String, Object> attributes) {
+        return ExecutionEventContext.of(context.environment(), context.visibleVariables(), attributes);
+    }
+
+    private ExecutionEventContext scopedContext(EffectiveEnvironment environment, Map<String, Object> attributes) {
+        return ExecutionEventContext.of(environment, Map.of(), attributes);
+    }
+
+    private ExecutionEventContext withStatus(ExecutionEventContext context, Status status) {
+        Map<String, Object> attributes = new LinkedHashMap<>(context.attributes());
+        attributes.put(ExecutionEventAttributes.STATUS, status.name());
+        return ExecutionEventContext.of(context.environment(), context.variables(), attributes);
+    }
+
     private Status mergeStatus(Status current, Status next) {
-        if (current == Status.CANCELLED || next == Status.CANCELLED) return Status.CANCELLED;
-        if (current == Status.FAILED || next == Status.FAILED) return Status.FAILED;
+        if (current == Status.CANCELLED || next == Status.CANCELLED) {
+            return Status.CANCELLED;
+        }
+        if (current == Status.FAILED || next == Status.FAILED) {
+            return Status.FAILED;
+        }
         return Status.PASSED;
     }
 
@@ -427,8 +564,27 @@ public class WorkflowExecutionServiceImpl implements ProjectExecutionService, Gr
             throw new CancellationException();
         }
     }
-    private Map<String, Object> safeMap(Map<String, Object> value) { return value == null ? Map.of() : value; }
-    private String json(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception e) { return CommonConstant.JSON_EMPTY_OBJECT; } }
-    private <T> T required(T value, String message) { if (value == null) throw new IllegalArgumentException(message); return value; }
-    private String message(Throwable e) { return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
+
+    private Map<String, Object> safeMap(Map<String, Object> value) {
+        return value == null ? Map.of() : value;
+    }
+
+    private String json(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return CommonConstant.JSON_EMPTY_OBJECT;
+        }
+    }
+
+    private <T> T required(T value, String message) {
+        if (value == null) {
+            throw new IllegalArgumentException(message);
+        }
+        return value;
+    }
+
+    private String message(Throwable e) {
+        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+    }
 }

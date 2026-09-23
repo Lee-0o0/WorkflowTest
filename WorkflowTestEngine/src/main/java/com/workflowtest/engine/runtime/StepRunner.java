@@ -3,6 +3,8 @@ package com.workflowtest.engine.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflowtest.engine.api.execution.ExecutionModels.Status;
+import com.workflowtest.engine.api.execution.listener.ExecutionEventAttributes;
+import com.workflowtest.engine.api.execution.listener.ExecutionEventContext;
 import com.workflowtest.engine.api.execution.listener.ExecutionEventType;
 import com.workflowtest.engine.application.execution.CancellationException;
 import com.workflowtest.engine.application.execution.ExecutionListenerPublisher;
@@ -16,6 +18,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -53,17 +57,18 @@ public class StepRunner {
                     Long workflowExecutionId, Long hookExecutionId,
                     AtomicBoolean cancelled) throws Throwable {
         String parentEventId = String.valueOf(workflowExecutionId != null ? workflowExecutionId : hookExecutionId);
-        listenerPublisher.notify(ExecutionEventType.STEP_STARTED, parentEventId, step.code(), step.name());
+        ExecutionEventContext eventContext = stepEventContext(context, step, workflowExecutionId, hookExecutionId);
+        listenerPublisher.notify(ExecutionEventType.STEP_STARTED, parentEventId, step.code(), step.name(), eventContext);
         StepExecutionEntity execution = beginStepExecution(step, workflowExecutionId, hookExecutionId);
         long start = System.nanoTime();
         try {
             checkCancelled(cancelled);
             StepRunOutcome outcome = execute(step, context, groupScope);
             markStepPassed(execution, outcome);
-            listenerPublisher.notify(ExecutionEventType.STEP_PASSED, parentEventId, step.code(), step.name());
+            listenerPublisher.notify(ExecutionEventType.STEP_PASSED, parentEventId, step.code(), step.name(), eventContext);
         } catch (Throwable e) {
             markStepFailed(execution, e);
-            listenerPublisher.notify(ExecutionEventType.STEP_FAILED, parentEventId, step.code(), message(e));
+            listenerPublisher.notify(ExecutionEventType.STEP_FAILED, parentEventId, step.code(), message(e), eventContext);
             throw e;
         } finally {
             finishStepExecution(execution, start);
@@ -101,6 +106,20 @@ public class StepRunner {
         execution.setFinishedAt(LocalDateTime.now());
         execution.setElapsedMs(Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
         stepExecutionMapper.updateById(execution);
+    }
+
+    private ExecutionEventContext stepEventContext(ExecutionContext context, RuntimeStep step,
+                                                   Long workflowExecutionId, Long hookExecutionId) {
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put(ExecutionEventAttributes.STEP_CODE, step.code());
+        attributes.put(ExecutionEventAttributes.STEP_NAME, step.name());
+        if (workflowExecutionId != null) {
+            attributes.put(ExecutionEventAttributes.WORKFLOW_EXECUTION_ID, workflowExecutionId);
+        }
+        if (hookExecutionId != null) {
+            attributes.put(ExecutionEventAttributes.HOOK_EXECUTION_ID, hookExecutionId);
+        }
+        return ExecutionEventContext.of(context.environment(), context.visibleVariables(), attributes);
     }
 
     private String resolvePhase(Long hookExecutionId) {
