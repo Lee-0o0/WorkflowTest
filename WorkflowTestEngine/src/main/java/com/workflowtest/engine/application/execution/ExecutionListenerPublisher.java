@@ -1,20 +1,16 @@
 package com.workflowtest.engine.application.execution;
 
-import com.workflowtest.engine.api.execution.listener.ExecutionEvent;
-import com.workflowtest.engine.api.execution.listener.ExecutionEventContext;
-import com.workflowtest.engine.api.execution.listener.ExecutionEventType;
-import com.workflowtest.engine.api.execution.listener.ExecutionListener;
-import com.workflowtest.engine.api.execution.listener.ExecutionListeners;
-import org.springframework.stereotype.Component;
+import com.workflowtest.engine.listener.ExecutionEvent;
+import com.workflowtest.engine.listener.ExecutionEventContext;
+import com.workflowtest.engine.listener.ExecutionEventType;
+import com.workflowtest.engine.listener.ExecutionListener;
+import com.workflowtest.engine.listener.ExecutionListeners;
 
 import java.util.List;
 
 /**
- * 从 Spring 容器收集全部 {@link ExecutionListener} Bean，并按 order 广播执行事件。
- * <p>
- * 不限于 {@code com.workflowtest.engine} 包：外部项目只要将监听器注册为 Spring Bean 即可被注入。
+ * 收集 {@link ExecutionListener} 并按 order 广播执行事件。
  */
-@Component
 public class ExecutionListenerPublisher {
     private final List<ExecutionListener> listeners;
 

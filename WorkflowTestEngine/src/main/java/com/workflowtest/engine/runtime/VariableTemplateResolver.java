@@ -6,14 +6,12 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workflowtest.engine.support.EngineMessages;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Component
 @RequiredArgsConstructor
 public class VariableTemplateResolver {
     private static final String VARIABLE_PATTERN = "\\$\\{([^}]+)}";

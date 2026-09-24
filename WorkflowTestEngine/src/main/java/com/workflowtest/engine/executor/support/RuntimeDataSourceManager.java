@@ -1,42 +1,85 @@
 package com.workflowtest.engine.executor.support;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workflowtest.engine.api.definition.DefinitionModels.ProjectResourceType;
-import com.workflowtest.engine.persistence.entity.ProjectResourceEntity;
-import com.workflowtest.engine.persistence.mapper.ProjectResourceMapper;
-import com.workflowtest.engine.security.SecretCipher;
+import com.workflowtest.engine.model.plan.RuntimeDataSourcePlan;
 import com.workflowtest.engine.support.JdbcConnectionConfig;
-import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-@Component
+/**
+ * 执行期数据源注册表：由 Server 通过执行计划 {@code resources.datasources} 传入，Engine 运行时合并注册。
+ */
 @RequiredArgsConstructor
 public class RuntimeDataSourceManager {
-    private final ProjectResourceMapper mapper;
-    private final SecretCipher cipher;
     private final ObjectMapper objectMapper;
     private final Map<Long, com.zaxxer.hikari.HikariDataSource> pools = new ConcurrentHashMap<>();
+    private volatile Map<Long, DatasourceRuntimeDefinition> definitions = Map.of();
+
+    /** 合并执行计划中的数据源定义（同 id 后者覆盖前者）。 */
+    public void merge(List<RuntimeDataSourcePlan> datasources) {
+        if (datasources == null || datasources.isEmpty()) {
+            return;
+        }
+        Map<Long, DatasourceRuntimeDefinition> next = new ConcurrentHashMap<>(definitions);
+        for (RuntimeDataSourcePlan source : datasources) {
+            if (source.id() <= 0) {
+                continue;
+            }
+            next.put(source.id(), new DatasourceRuntimeDefinition(
+                    source.id(),
+                    source.driverClass(),
+                    source.jdbcUrl(),
+                    source.username(),
+                    source.password(),
+                    source.allowDangerousSql()));
+        }
+        definitions = Map.copyOf(next);
+    }
+
+    /** @deprecated 保留 JSON 合并仅供过渡；新代码请使用 {@link #merge(List)}。 */
+    @Deprecated
+    public void merge(JsonNode datasources) {
+        if (datasources == null || !datasources.isArray() || datasources.isEmpty()) {
+            return;
+        }
+        Map<Long, DatasourceRuntimeDefinition> next = new ConcurrentHashMap<>(definitions);
+        for (JsonNode node : datasources) {
+            long id = node.path("id").asLong();
+            if (id <= 0) {
+                continue;
+            }
+            Map<String, Object> config = objectMapper.convertValue(node, Map.class);
+            next.put(id, new DatasourceRuntimeDefinition(
+                    id,
+                    string(config, "driverClass"),
+                    JdbcConnectionConfig.resolveJdbcUrl(config),
+                    string(config, "username"),
+                    string(config, "password"),
+                    bool(config, "allowDangerousSql")));
+        }
+        definitions = Map.copyOf(next);
+    }
+
+    public void clear() {
+        closePools();
+        definitions = Map.of();
+    }
 
     public DataSource get(Long id) {
         return pools.computeIfAbsent(id, this::create);
     }
 
     public DatasourceRuntimeDefinition definition(Long id) {
-        ProjectResourceEntity entity = requireDatasource(id);
-        Map<String, Object> config = readConfig(entity.getConfigJson());
-        return new DatasourceRuntimeDefinition(
-                entity.getId(),
-                string(config, "driverClass"),
-                JdbcConnectionConfig.resolveJdbcUrl(config),
-                string(config, "username"),
-                string(config, "encryptedPassword"),
-                bool(config, "allowDangerousSql"));
+        DatasourceRuntimeDefinition source = definitions.get(id);
+        if (source == null) {
+            throw new IllegalArgumentException("执行计划中未找到数据源: " + id);
+        }
+        return source;
     }
 
     private com.zaxxer.hikari.HikariDataSource create(Long id) {
@@ -46,32 +89,15 @@ public class RuntimeDataSourceManager {
         config.setDriverClassName(source.driverClass());
         config.setJdbcUrl(source.jdbcUrl());
         config.setUsername(source.username());
-        config.setPassword(cipher.decrypt(source.encryptedPassword()));
+        config.setPassword(source.password());
         config.setMaximumPoolSize(3);
         config.setConnectionTimeout(5000);
         return new com.zaxxer.hikari.HikariDataSource(config);
     }
 
-    private ProjectResourceEntity requireDatasource(Long id) {
-        ProjectResourceEntity entity = mapper.selectById(id);
-        if (entity == null || !Boolean.TRUE.equals(entity.getEnabled()))
-            throw new IllegalArgumentException("数据源不存在或已禁用: " + id);
-        if (!ProjectResourceType.DATASOURCE.name().equals(entity.getResourceType()))
-            throw new IllegalArgumentException("资源不是 JDBC 数据源: " + id);
-        return entity;
-    }
-
-    @PreDestroy
-    public void close() {
+    private void closePools() {
         pools.values().forEach(com.zaxxer.hikari.HikariDataSource::close);
-    }
-
-    private Map<String, Object> readConfig(String json) {
-        try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            throw new IllegalArgumentException("资源配置 JSON 无效", e);
-        }
+        pools.clear();
     }
 
     private static String string(Map<String, Object> config, String key) {

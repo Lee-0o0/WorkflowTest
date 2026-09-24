@@ -1,12 +1,14 @@
 package com.workflowtest.engine.executor;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.workflowtest.engine.api.definition.DefinitionModels.StepType;
+import com.workflowtest.engine.executor.config.StepConfig;
+import com.workflowtest.engine.model.StepType;
+import com.workflowtest.engine.runtime.RuntimeVariableScope;
 import com.workflowtest.engine.runtime.ExecutionContext;
 import com.workflowtest.engine.runtime.RuntimeStep;
 import com.workflowtest.engine.runtime.StepResult;
 
 public interface StepExecutor {
     StepType supports();
-    StepResult execute(RuntimeStep step, JsonNode resolvedConfig, ExecutionContext context) throws Exception;
+    StepResult execute(RuntimeStep step, StepConfig config, ExecutionContext context, RuntimeVariableScope variableScope)
+            throws Exception;
 }

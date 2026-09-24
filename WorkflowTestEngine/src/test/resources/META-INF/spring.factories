@@ -1,2 +1,0 @@
-com.workflowtest.engine.api.execution.listener.ExecutionListener=\
-com.workflowtest.engine.support.FactoryRegisteredExecutionListener

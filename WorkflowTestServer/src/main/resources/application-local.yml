@@ -1,0 +1,3 @@
+# 本地开发：server.port=0 表示由 Spring Boot 绑定系统分配的空闲端口
+server:
+  port: ${WORKFLOWTEST_SERVER_PORT:0}

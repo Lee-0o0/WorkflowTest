@@ -1,15 +1,16 @@
 package com.workflowtest.engine.executor;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import com.workflowtest.engine.api.definition.DefinitionModels.EffectiveEnvironment;
-import com.workflowtest.engine.api.definition.DefinitionModels.StepType;
+import com.workflowtest.engine.executor.config.HttpStepConfig;
+import com.workflowtest.engine.model.EffectiveEnvironment;
+import com.workflowtest.engine.model.StepType;
 import com.workflowtest.engine.runtime.ExecutionContext;
 import com.workflowtest.engine.runtime.RuntimeStep;
 import com.workflowtest.engine.runtime.StepResult;
 import com.workflowtest.engine.runtime.StepResult.OutputField;
+import com.workflowtest.engine.runtime.RuntimeVariableScope;
 import com.workflowtest.engine.support.EngineMessages;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,11 +50,11 @@ class HttpStepExecutorTest {
     }
 
     @Test
-    void execute_rejectsBlankUrl() {
+    void execute_rejectsBlankUrl() throws Exception {
         RuntimeStep step = runtimeStep("http");
-        JsonNode config = objectMapper.createObjectNode().put("url", "   ");
+        HttpStepConfig config = HttpStepConfig.from(objectMapper.readTree("{\"url\":\"   \"}"), objectMapper);
 
-        assertThatThrownBy(() -> executor.execute(step, config, emptyContext()))
+        assertThatThrownBy(() -> executor.execute(step, config, emptyContext(), RuntimeVariableScope.WORKFLOW))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(EngineMessages.HTTP_URL_REQUIRED);
     }
@@ -66,9 +67,9 @@ class HttpStepExecutorTest {
             respond(exchange, 200, body);
         });
 
-        StepResult result = executor.execute(runtimeStep("get"), config("""
+        StepResult result = executor.execute(runtimeStep("get"), httpConfig("""
                 {"method":"GET","url":"%s"}
-                """.formatted(url())), emptyContext());
+                """.formatted(url())), emptyContext(), RuntimeVariableScope.WORKFLOW);
 
         assertThat(result.response().path(OutputField.STATUS).asInt()).isEqualTo(200);
         assertThat(result.response().path("body").path("ok").asBoolean()).isTrue();
@@ -84,9 +85,9 @@ class HttpStepExecutorTest {
             respond(exchange, 204, new byte[0]);
         });
 
-        executor.execute(runtimeStep("default-get"), config("""
+        executor.execute(runtimeStep("default-get"), httpConfig("""
                 {"url":"%s"}
-                """.formatted(url())), emptyContext());
+                """.formatted(url())), emptyContext(), RuntimeVariableScope.WORKFLOW);
 
         assertThat(method).hasValue("GET");
     }
@@ -99,14 +100,14 @@ class HttpStepExecutorTest {
             respond(exchange, 201, "{\"created\":true}".getBytes(StandardCharsets.UTF_8));
         });
 
-        StepResult result = executor.execute(runtimeStep("create"), config("""
+        StepResult result = executor.execute(runtimeStep("create"), httpConfig("""
                 {
                   "method":"POST",
                   "url":"%s",
                   "headers":{"Content-Type":"application/json"},
                   "body":{"name":"demo"}
                 }
-                """.formatted(url())), emptyContext());
+                """.formatted(url())), emptyContext(), RuntimeVariableScope.WORKFLOW);
 
         assertThat(requestBody).hasValue("{\"name\":\"demo\"}");
         assertThat(result.response().path(OutputField.STATUS).asInt()).isEqualTo(201);
@@ -122,13 +123,13 @@ class HttpStepExecutorTest {
             respond(exchange, 200, "{}".getBytes(StandardCharsets.UTF_8));
         });
 
-        executor.execute(runtimeStep("auth"), config("""
+        executor.execute(runtimeStep("auth"), httpConfig("""
                 {
                   "method":"GET",
                   "url":"%s",
                   "headers":{"Authorization":"Bearer token-1"}
                 }
-                """.formatted(url())), emptyContext());
+                """.formatted(url())), emptyContext(), RuntimeVariableScope.WORKFLOW);
 
         assertThat(authHeader).hasValue("Bearer token-1");
     }
@@ -137,9 +138,9 @@ class HttpStepExecutorTest {
     void execute_nonJsonBody_isKeptAsText() throws Exception {
         startServer(exchange -> respond(exchange, 200, "plain-text".getBytes(StandardCharsets.UTF_8)));
 
-        StepResult result = executor.execute(runtimeStep("plain"), config("""
+        StepResult result = executor.execute(runtimeStep("plain"), httpConfig("""
                 {"method":"GET","url":"%s"}
-                """.formatted(url())), emptyContext());
+                """.formatted(url())), emptyContext(), RuntimeVariableScope.WORKFLOW);
 
         assertThat(result.response().path("body").asText()).isEqualTo("plain-text");
     }
@@ -151,13 +152,13 @@ class HttpStepExecutorTest {
                 Map.of("readTimeout", 15000, "connectTimeout", 8000),
                 Map.of("readTimeout", 15000, "connectTimeout", 8000),
                 Map.of());
-        ExecutionContext context = new ExecutionContext(environment, Map.of(), Map.of(), objectMapper);
+        ExecutionContext context = new ExecutionContext(environment, Map.of(), Map.of(), Map.of(), objectMapper);
 
         startServer(exchange -> respond(exchange, 200, "{\"ok\":true}".getBytes(StandardCharsets.UTF_8)));
 
-        StepResult result = executor.execute(runtimeStep("timeout"), config("""
+        StepResult result = executor.execute(runtimeStep("timeout"), httpConfig("""
                 {"method":"GET","url":"%s"}
-                """.formatted(url())), context);
+                """.formatted(url())), context, RuntimeVariableScope.WORKFLOW);
 
         assertThat(result.response().path(OutputField.STATUS).asInt()).isEqualTo(200);
         assertThat(context.resolveLayeredInt("readTimeout", null)).isEqualTo(15000);
@@ -170,10 +171,10 @@ class HttpStepExecutorTest {
                 Map.of("readTimeout", 15000),
                 Map.of("readTimeout", 15000),
                 Map.of());
-        ExecutionContext context = new ExecutionContext(environment, Map.of(), Map.of(), objectMapper);
+        ExecutionContext context = new ExecutionContext(environment, Map.of(), Map.of(), Map.of(), objectMapper);
 
-        assertThat(context.resolveLayeredInt("readTimeout", objectMapper.readTree("{\"readTimeout\":3000}")))
-                .isEqualTo(3000);
+        HttpStepConfig config = HttpStepConfig.from(objectMapper.readTree("{\"readTimeout\":3000}"), objectMapper);
+        assertThat(config.readTimeoutMs()).isEqualTo(3000);
     }
 
     private void startServer(HttpHandler handler) throws IOException {
@@ -196,11 +197,11 @@ class HttpStepExecutorTest {
     private ExecutionContext emptyContext() {
         EffectiveEnvironment environment = new EffectiveEnvironment(
                 Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
-        return new ExecutionContext(environment, Map.of(), Map.of(), objectMapper);
+        return new ExecutionContext(environment, Map.of(), Map.of(), Map.of(), objectMapper);
     }
 
-    private JsonNode config(String json) throws Exception {
-        return objectMapper.readTree(json);
+    private HttpStepConfig httpConfig(String json) throws Exception {
+        return HttpStepConfig.from(objectMapper.readTree(json), objectMapper);
     }
 
     private static RuntimeStep runtimeStep(String code) {

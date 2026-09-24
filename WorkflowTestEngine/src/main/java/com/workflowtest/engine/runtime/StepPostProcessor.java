@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import com.workflowtest.engine.support.EngineMessages;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -13,7 +12,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-@Component
 @RequiredArgsConstructor
 public class StepPostProcessor {
     private static final class Field {
@@ -64,7 +62,8 @@ public class StepPostProcessor {
 
     private final ObjectMapper objectMapper;
 
-    public JsonNode extract(JsonNode definitions, StepResult result, ExecutionContext context, boolean groupScope) {
+    public JsonNode extract(JsonNode definitions, StepResult result, ExecutionContext context,
+                            RuntimeVariableScope variableScope) {
         var extracted = objectMapper.createObjectNode();
         if (definitions == null || !definitions.isArray()) return extracted;
         Object document = objectMapper.convertValue(result.output(), Object.class);
@@ -79,8 +78,9 @@ public class StepPostProcessor {
             if (value == null && definition.has(Field.DEFAULT_VALUE)) {
                 value = objectMapper.convertValue(definition.get(Field.DEFAULT_VALUE), Object.class);
             }
-            context.putVariable(target, value, groupScope);
-            extracted.set(extractKey(target), objectMapper.valueToTree(value));
+            context.assignVariable(target, value, variableScope);
+            RuntimeVariableTarget.Resolved resolved = RuntimeVariableTarget.resolve(target, variableScope);
+            extracted.set(resolved.key(), objectMapper.valueToTree(value));
         }
         return extracted;
     }
@@ -105,16 +105,6 @@ public class StepPostProcessor {
         }
         if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
         return results;
-    }
-
-    private String extractKey(String target) {
-        if (target.startsWith(ExecutionContext.VariableScope.GROUP)) {
-            return target.substring(ExecutionContext.VariableScope.GROUP.length());
-        }
-        if (target.startsWith(ExecutionContext.VariableScope.WORKFLOW)) {
-            return target.substring(ExecutionContext.VariableScope.WORKFLOW.length());
-        }
-        return target;
     }
 
     private Object source(Object document, String source) {

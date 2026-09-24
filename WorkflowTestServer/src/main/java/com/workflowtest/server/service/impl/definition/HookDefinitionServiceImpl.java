@@ -1,0 +1,79 @@
+package com.workflowtest.server.service.impl.definition;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.workflowtest.server.service.definition.DefinitionModels.*;
+import com.workflowtest.server.service.definition.HookDefinitionService;
+import com.workflowtest.server.service.impl.support.DefinitionPersistenceSupport;
+import com.workflowtest.server.persistence.entity.HookEntity;
+import com.workflowtest.server.persistence.entity.HookStepEntity;
+import com.workflowtest.server.persistence.mapper.HookMapper;
+import com.workflowtest.server.persistence.mapper.HookStepMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Optional;
+
+@Service
+@Transactional
+@RequiredArgsConstructor
+public class HookDefinitionServiceImpl implements HookDefinitionService {
+    private final HookMapper hookMapper;
+    private final HookStepMapper hookStepMapper;
+    private final DefinitionPersistenceSupport support;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Hook> find(Long groupId, HookType hookType) {
+        HookEntity entity = hookMapper.selectOne(Wrappers.<HookEntity>lambdaQuery()
+                .eq(HookEntity::getGroupId, groupId)
+                .eq(HookEntity::getHookType, hookType.name()));
+        return entity == null ? Optional.empty() : Optional.of(toHook(entity));
+    }
+
+    @Override
+    public Hook create(Long groupId, HookType hookType) {
+        if (find(groupId, hookType).isPresent()) {
+            throw new IllegalStateException("钩子已存在: groupId=" + groupId + ", hookType=" + hookType);
+        }
+        HookEntity entity = new HookEntity();
+        entity.setGroupId(groupId);
+        entity.setHookType(hookType.name());
+        entity.setEnabled(true);
+        hookMapper.insert(entity);
+        return toHook(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Hook> listByGroup(Long groupId) {
+        return hookMapper.selectList(Wrappers.<HookEntity>lambdaQuery()
+                        .eq(HookEntity::getGroupId, groupId)
+                        .orderByAsc(HookEntity::getHookType))
+                .stream().map(this::toHook).toList();
+    }
+
+    @Override
+    public void deleteByGroup(Long groupId) {
+        hookMapper.selectList(Wrappers.<HookEntity>lambdaQuery().eq(HookEntity::getGroupId, groupId))
+                .forEach(hook -> {
+                    hookStepMapper.delete(Wrappers.<HookStepEntity>lambdaQuery().eq(HookStepEntity::getHookId, hook.getId()));
+                    hookMapper.deleteById(hook.getId());
+                });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Step> listSteps(Long hookId) {
+        support.require(hookMapper.selectById(hookId), "钩子不存在");
+        return hookStepMapper.selectList(Wrappers.<HookStepEntity>lambdaQuery()
+                        .eq(HookStepEntity::getHookId, hookId)
+                        .orderByAsc(HookStepEntity::getSortOrder))
+                .stream().map(support::toHookStep).toList();
+    }
+
+    private Hook toHook(HookEntity entity) {
+        return support.toHook(entity, List.of());
+    }
+}

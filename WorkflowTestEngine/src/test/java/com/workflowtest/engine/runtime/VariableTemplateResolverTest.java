@@ -2,7 +2,7 @@ package com.workflowtest.engine.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workflowtest.engine.api.definition.DefinitionModels.EffectiveEnvironment;
+import com.workflowtest.engine.model.EffectiveEnvironment;
 import com.workflowtest.engine.support.EngineMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,11 +28,11 @@ class VariableTemplateResolverTest {
                 Map.of("baseUrl", "http://workflow"),
                 Map.of("baseUrl", "http://workflow"),
                 Map.of());
-        context = new ExecutionContext(environment, new LinkedHashMap<>(Map.of("seed", 7)), Map.of(), objectMapper);
-        context.putVariable("workflow.orderId", 12345, false);
-        context.putVariable("workflow.enabled", true, false);
-        context.putVariable("workflow.profile", Map.of("level", "vip", "score", 99), false);
-        context.putVariable("group.channel", "mobile", true);
+        context = new ExecutionContext(environment, Map.of(), Map.of(), Map.of(), objectMapper);
+        context.assignVariable("workflow.orderId", 12345, RuntimeVariableScope.WORKFLOW);
+        context.assignVariable("workflow.enabled", true, RuntimeVariableScope.WORKFLOW);
+        context.assignVariable("workflow.profile", Map.of("level", "vip", "score", 99), RuntimeVariableScope.WORKFLOW);
+        context.assignVariable("group.channel", "mobile", RuntimeVariableScope.GROUP);
     }
 
     @Test

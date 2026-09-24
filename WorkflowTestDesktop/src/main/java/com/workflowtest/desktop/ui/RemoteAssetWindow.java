@@ -6,7 +6,7 @@ import com.workflowtest.desktop.execution.ExecutionEventSink;
 import com.workflowtest.desktop.remote.ServerClient;
 import com.workflowtest.engine.api.execution.ExecutionControlService;
 import com.workflowtest.engine.api.execution.ExecutionModels.*;
-import com.workflowtest.engine.api.execution.listener.ExecutionEvent;
+import com.workflowtest.engine.listener.ExecutionEvent;
 import com.workflowtest.engine.api.execution.PackageExecutionService;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
