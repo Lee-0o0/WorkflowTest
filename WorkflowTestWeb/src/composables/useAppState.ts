@@ -7,6 +7,7 @@ import type {
   ExecutionSummary,
   GlobalVariable,
   Group,
+  GroupHookTargetDialogState,
   Hook,
   PrimaryNav,
   Project,
@@ -57,6 +58,13 @@ export function provideAppState() {
   })
 
   const createDialog = ref<CreateDialogState>(emptyCreateDialog())
+
+  const emptyGroupHookTargetDialog = (): GroupHookTargetDialogState => ({
+    visible: false,
+    groups: []
+  })
+
+  const groupHookTargetDialog = ref<GroupHookTargetDialogState>(emptyGroupHookTargetDialog())
 
   const currentProject = computed(() => {
     const s = selection.value
@@ -363,6 +371,23 @@ export function provideAppState() {
     })
   }
 
+  async function saveProject(project: Project, name: string, description: string) {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      error.value = '项目名称不能为空'
+      return
+    }
+    await withLoading(async () => {
+      const updated = await api.updateProject(project.id, trimmedName, description.trim())
+      const index = projects.value.findIndex((item) => item.id === project.id)
+      if (index >= 0) projects.value[index] = updated
+      if (selection.value.project?.id === project.id) {
+        selection.value = { ...selection.value, project: updated }
+      }
+      lastSavedHint.value = `项目已保存 · ${new Date().toLocaleTimeString()}`
+    })
+  }
+
   async function deleteSelection() {
     const s = selection.value
     if (s.kind === 'project' && s.project) {
@@ -450,8 +475,45 @@ export function provideAppState() {
     await withLoading(async () => {
       await api.createGroupHook(group.id, hookType)
       await refreshTree()
-      lastSavedHint.value = '钩子已创建'
+      expandedProjects.add(group.projectId)
+      expandedGroups.add(group.id)
+      const project = projects.value.find((item) => item.id === group.projectId)
+      if (project) {
+        selection.value = { kind: 'group', project, group }
+      }
+      lastSavedHint.value = hookType === 'BEFORE_GROUP' ? '组前钩子已创建' : '组后钩子已创建'
     })
+  }
+
+  function closeGroupHookTargetDialog() {
+    groupHookTargetDialog.value = emptyGroupHookTargetDialog()
+  }
+
+  async function confirmGroupHookTargetDialog() {
+    const dialog = groupHookTargetDialog.value
+    const group = dialog.groups.find((item) => item.id === dialog.groupId)
+    if (!group || !dialog.hookType) return
+    closeGroupHookTargetDialog()
+    await createGroupHook(group, dialog.hookType)
+  }
+
+  async function createProjectGroupHook(project: Project, hookType: 'BEFORE_GROUP' | 'AFTER_GROUP') {
+    const groups = groupsByProject.value[project.id] ?? []
+    if (!groups.length) {
+      error.value = '请先新建组'
+      return
+    }
+    if (groups.length === 1) {
+      await createGroupHook(groups[0], hookType)
+      return
+    }
+    groupHookTargetDialog.value = {
+      visible: true,
+      project,
+      hookType,
+      groupId: groups[0].id,
+      groups
+    }
   }
 
   async function createProjectHook(project: Project) {
@@ -485,6 +547,7 @@ export function provideAppState() {
     expandedGroups,
     selection,
     createDialog,
+    groupHookTargetDialog,
     currentProject,
     currentWorkflow,
     statusText,
@@ -505,6 +568,7 @@ export function provideAppState() {
     createWorkflow,
     createWorkflowStep,
     saveCurrentStep,
+    saveProject,
     deleteSelection,
     runProject,
     runGroup,
@@ -512,6 +576,9 @@ export function provideAppState() {
     runCurrentWorkflow,
     openHistoryDetail,
     createGroupHook,
+    createProjectGroupHook,
+    closeGroupHookTargetDialog,
+    confirmGroupHookTargetDialog,
     createProjectHook,
     openCreateProjectDialog,
     openCreateGroupDialog,

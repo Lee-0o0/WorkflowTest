@@ -114,6 +114,14 @@ export interface CreateDialogState {
   value: string
 }
 
+export interface GroupHookTargetDialogState {
+  visible: boolean
+  project?: Project
+  hookType?: 'BEFORE_GROUP' | 'AFTER_GROUP'
+  groupId?: number
+  groups: Group[]
+}
+
 export type SelectionKind = 'none' | 'project' | 'group' | 'workflow' | 'step' | 'hookStep'
 
 export interface AppSelection {

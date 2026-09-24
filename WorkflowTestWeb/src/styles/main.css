@@ -115,12 +115,20 @@ code {
   grid-template-columns: 1fr;
 }
 
+.content-area.hide-inspector {
+  grid-template-columns: var(--tree-width) 1fr;
+}
+
 .content-area.tree-collapsed {
   grid-template-columns: var(--tree-collapsed-width) 1fr var(--inspector-width);
 }
 
 .content-area.no-inspector.tree-collapsed {
   grid-template-columns: 1fr;
+}
+
+.content-area.hide-inspector.tree-collapsed {
+  grid-template-columns: var(--tree-collapsed-width) 1fr;
 }
 
 .main-layout.nav-collapsed .primary-nav {
@@ -746,7 +754,141 @@ code {
 }
 
 .overview-panel {
-  max-width: 720px;
+  max-width: 760px;
+}
+
+.entity-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.entity-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.entity-title-wrap {
+  min-width: 0;
+  flex: 1;
+}
+
+.entity-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.entity-header-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 36px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.split-dropdown {
+  position: relative;
+  width: 120px;
+}
+
+.split-dropdown-trigger {
+  width: 100%;
+  gap: 6px;
+}
+
+.split-dropdown-trigger svg {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.split-dropdown-trigger svg.open {
+  transform: rotate(180deg);
+}
+
+.split-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 4px;
+  z-index: 20;
+}
+
+.split-dropdown-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.split-dropdown-item:hover:not(:disabled) {
+  background: var(--panel-muted);
+}
+
+.split-dropdown-item:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.overview-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112px;
+  height: 36px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.entity-name {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.3;
+  cursor: text;
+}
+
+.entity-name-input {
+  width: 100%;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.entity-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.overview-actions-right {
+  justify-content: flex-end;
+}
+
+.project-editor .field textarea {
+  min-height: 180px;
+  resize: vertical;
 }
 
 .status-passed,

@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import { provideAppState } from './composables/useAppState'
 import CreateDialog from './components/common/CreateDialog.vue'
+import GroupHookTargetDialog from './components/common/GroupHookTargetDialog.vue'
 import AppStatusBar from './components/layout/AppStatusBar.vue'
 import AppTopBar from './components/layout/AppTopBar.vue'
 import PrimaryNav from './components/layout/PrimaryNav.vue'
@@ -32,6 +33,7 @@ onMounted(() => {
         class="content-area"
         :class="{
           'no-inspector': app.primaryNav.value !== 'projects',
+          'hide-inspector': app.primaryNav.value === 'projects' && app.selection.value.kind === 'project',
           'tree-collapsed': app.primaryNav.value === 'projects' && app.projectTreeCollapsed.value
         }"
       >
@@ -46,11 +48,14 @@ onMounted(() => {
           <WorkspaceOverview v-else />
         </main>
 
-        <StepInspector v-if="app.primaryNav.value === 'projects'" />
+        <StepInspector
+          v-if="app.primaryNav.value === 'projects' && app.selection.value.kind !== 'project'"
+        />
       </div>
     </div>
 
     <AppStatusBar />
     <CreateDialog />
+    <GroupHookTargetDialog />
   </div>
 </template>
