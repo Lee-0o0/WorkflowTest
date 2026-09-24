@@ -1,6 +1,14 @@
 # WorkflowTestWeb
 
-Vue 3 前端，通过 HTTP 调用本地 `WorkflowTestServer`。
+Vue 3 前端（TestFlow UI），通过 HTTP 调用本地 `WorkflowTestServer`。
+
+## 界面结构
+
+- **左侧一级导航**：项目管理 / 全局变量 / 执行历史
+- **项目树**：项目 → 组 → 工作流（Hook 不在树中展开，在工作流编辑区展示）
+- **中间工作区**：工作流步骤编排 / 全局变量 / 执行历史
+- **右侧 Inspector**：当前选中步骤的配置面板
+- **顶部**：保存、执行当前工作流
 
 ## 开发
 

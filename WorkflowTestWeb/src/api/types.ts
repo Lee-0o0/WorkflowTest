@@ -29,18 +29,36 @@ export interface Workflow {
   enabled: boolean
 }
 
+export type StepType = 'HTTP' | 'SQL' | 'DELAY' | 'SET_VAR' | 'DELETE_VAR'
+
 export interface Step {
   id: number
   ownerId: number
   code: string
   name: string
-  type: 'HTTP' | 'SQL' | 'DELAY' | 'SET_VAR' | 'DELETE_VAR'
+  type: StepType
   sortOrder: number
   enabled: boolean
   configJson: string
   extractionJson?: string
   assertionJson?: string
   hookStep: boolean
+}
+
+export interface Hook {
+  id: number
+  groupId: number
+  hookType: 'BEFORE_GROUP' | 'AFTER_GROUP'
+  enabled: boolean
+  steps: Step[]
+}
+
+export interface ProjectHook {
+  id: number
+  projectId: number
+  hookType: 'BEFORE_EACH_GROUP'
+  enabled: boolean
+  steps: Step[]
 }
 
 export interface GlobalVariable {
@@ -63,12 +81,46 @@ export interface ExecutionSummary {
   errorMessage?: string
 }
 
-export type TreeNodeType = 'root' | 'project' | 'group' | 'workflow' | 'step' | 'global' | 'history'
+export interface StepExecutionDetail {
+  id: string
+  stepCode: string
+  phase: string
+  status: string
+  requestJson?: string
+  responseJson?: string
+  outputJson?: string
+  extractedJson?: string
+  assertionJson?: string
+  elapsedMs?: number
+  errorMessage?: string
+}
 
-export interface TreeSelection {
-  type: TreeNodeType
+export type PrimaryNav = 'projects' | 'globals' | 'history'
+
+export type CreateDialogKind = 'project' | 'group' | 'workflow' | 'step' | 'globalVariable'
+
+export interface CreateDialogState {
+  visible: boolean
+  kind: CreateDialogKind | null
+  title: string
+  subtitle?: string
+  project?: Project
+  group?: Group
+  workflow?: Workflow
+  stepType?: StepType
+  name: string
+  description: string
+  code: string
+  value: string
+}
+
+export type SelectionKind = 'none' | 'project' | 'group' | 'workflow' | 'step' | 'hookStep'
+
+export interface AppSelection {
+  kind: SelectionKind
   project?: Project
   group?: Group
   workflow?: Workflow
   step?: Step
+  hookScope?: 'project' | 'group'
 }
