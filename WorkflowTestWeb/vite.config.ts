@@ -37,9 +37,15 @@ function apiProxyPlugin(): Plugin {
         })
       }
 
-      server.middlewares.use('/api', (req, res) => {
+      // 勿挂载在 '/api' 前缀下，否则 req.url 会变成 /projects 而非 /api/projects
+      server.middlewares.use((req, res, next) => {
+        const requestPath = req.url ?? ''
+        if (!requestPath.startsWith('/api')) {
+          next()
+          return
+        }
+
         const port = readServerPort()
-        const requestPath = req.url ?? '/'
         const proxyReq = http.request(
           {
             hostname: 'localhost',
